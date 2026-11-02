@@ -48,6 +48,10 @@ namespace OLEDSaver
         private RadioButton _rbKeyboardOnly;
         private RadioButton _rbKeyboardAndMouse;
 
+        private RadioButton _rbActionBlackout;
+        private RadioButton _rbActionPowerOff;
+        private Label _lblActionHint;
+
         private CheckedListBox _clbDisplays;
         private Button _btnSelectAllDisplays;
         private Button _btnSelectExternalsOnly;
@@ -95,8 +99,8 @@ namespace OLEDSaver
         private void InitializeForm()
         {
             this.Text = "OLED Blackout Saver";
-            this.Size = new Size(720, 780);
-            this.MinimumSize = new Size(680, 700);
+            this.Size = new Size(720, 920);
+            this.MinimumSize = new Size(680, 750);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.BackColor = ColBg;
             this.ForeColor = ColTextPrimary;
@@ -130,7 +134,6 @@ namespace OLEDSaver
             titleLabel.Location = new Point(24, 12);
             headerPanel.Controls.Add(titleLabel);
 
-            // Subtitle dynamically placed strictly below titleLabel to avoid any text clipping
             Label subtitleLabel = new Label();
             subtitleLabel.Text = "Keystroke Inactivity Monitor • True OLED Black (#000000)";
             subtitleLabel.Font = new Font("Segoe UI", 8.5f, FontStyle.Regular);
@@ -189,7 +192,6 @@ namespace OLEDSaver
             _lblCountdown.AutoSize = true;
             cardTimer.Controls.Add(_lblCountdown);
 
-            // Dynamically positioned strictly below the countdown digits!
             _lblIdleDetails = new Label();
             _lblIdleDetails.Text = "Idle: 00:00 • Target: 5 minutes";
             _lblIdleDetails.Font = new Font("Segoe UI", 9f);
@@ -198,7 +200,6 @@ namespace OLEDSaver
             _lblIdleDetails.AutoSize = true;
             cardTimer.Controls.Add(_lblIdleDetails);
 
-            // Progress bar strictly below idle details
             _progressBar = new ProgressBar();
             _progressBar.Location = new Point(24, _lblIdleDetails.Bottom + 10);
             _progressBar.Size = new Size(cardTimer.Width - 220, 12);
@@ -306,12 +307,53 @@ namespace OLEDSaver
             yOffset = cardConfig.Bottom + 16;
 
             // ========================================================
-            // 3. Multi-Monitor Display Target Card
+            // 3. IDLE ACTION / SCREEN PROTECTION MODE CARD
+            // ========================================================
+            Panel cardAction = CreateCard(contentPanel, ref yOffset, 160);
+
+            Label lblActionTitle = new Label();
+            lblActionTitle.Text = "IDLE ACTION / SCREEN PROTECTION MODE";
+            lblActionTitle.UseMnemonic = false;
+            lblActionTitle.Font = new Font("Segoe UI", 8.5f, FontStyle.Bold);
+            lblActionTitle.ForeColor = ColTextSecondary;
+            lblActionTitle.Location = new Point(24, 14);
+            lblActionTitle.AutoSize = true;
+            cardAction.Controls.Add(lblActionTitle);
+
+            _rbActionBlackout = new RadioButton();
+            _rbActionBlackout.Text = "Pure OLED Blackout Overlay (#000000) [Instant 0ms wake, per-monitor configurable]";
+            _rbActionBlackout.Location = new Point(24, lblActionTitle.Bottom + 10);
+            _rbActionBlackout.AutoSize = true;
+            _rbActionBlackout.Checked = (_settings.ScreenAction != "HardwarePowerOff");
+            _rbActionBlackout.CheckedChanged += ScreenAction_CheckedChanged;
+            cardAction.Controls.Add(_rbActionBlackout);
+
+            _rbActionPowerOff = new RadioButton();
+            _rbActionPowerOff.Text = "Hardware Screen Power Off (Standby / No Signal) [Cuts video signal to all monitors]";
+            _rbActionPowerOff.Location = new Point(24, _rbActionBlackout.Bottom + 8);
+            _rbActionPowerOff.AutoSize = true;
+            _rbActionPowerOff.Checked = (_settings.ScreenAction == "HardwarePowerOff");
+            _rbActionPowerOff.CheckedChanged += ScreenAction_CheckedChanged;
+            cardAction.Controls.Add(_rbActionPowerOff);
+
+            _lblActionHint = new Label();
+            _lblActionHint.Text = "💡 Overlay turns off OLED pixels with 0ms resume. Hardware Power Off puts monitors into standby.";
+            _lblActionHint.Font = new Font("Segoe UI", 8.5f, FontStyle.Italic);
+            _lblActionHint.ForeColor = Color.FromArgb(148, 163, 184);
+            _lblActionHint.Location = new Point(24, _rbActionPowerOff.Bottom + 10);
+            _lblActionHint.AutoSize = true;
+            cardAction.Controls.Add(_lblActionHint);
+
+            cardAction.Height = _lblActionHint.Bottom + 18;
+            yOffset = cardAction.Bottom + 16;
+
+            // ========================================================
+            // 4. Multi-Monitor Display Target Card
             // ========================================================
             Panel cardDisplays = CreateCard(contentPanel, ref yOffset, 210);
 
             Label lblDisplaysTitle = new Label();
-            lblDisplaysTitle.Text = "TARGET DISPLAYS TO BLACKOUT";
+            lblDisplaysTitle.Text = "TARGET DISPLAYS TO BLACKOUT (OVERLAY MODE)";
             lblDisplaysTitle.UseMnemonic = false;
             lblDisplaysTitle.Font = new Font("Segoe UI", 8.5f, FontStyle.Bold);
             lblDisplaysTitle.ForeColor = ColTextSecondary;
@@ -360,7 +402,7 @@ namespace OLEDSaver
             yOffset = cardDisplays.Bottom + 16;
 
             // ========================================================
-            // 4. Preferences & Wake-up Behavior
+            // 5. Preferences & Wake-up Behavior
             // ========================================================
             Panel cardOptions = CreateCard(contentPanel, ref yOffset, 175);
 
@@ -390,7 +432,7 @@ namespace OLEDSaver
             cardOptions.Controls.Add(_chkMinimizeToTray);
 
             _chkHotkey = new CheckBox();
-            _chkHotkey.Text = "Instant Blackout Hotkey: Ctrl + Alt + B";
+            _chkHotkey.Text = "Instant Action Hotkey: Ctrl + Alt + B";
             _chkHotkey.Location = new Point(24, _chkMinimizeToTray.Bottom + 8);
             _chkHotkey.AutoSize = true;
             _chkHotkey.Checked = _settings.HotkeyEnabled;
@@ -461,7 +503,7 @@ namespace OLEDSaver
             _trayMenu = new ContextMenuStrip();
             _trayMenu.Items.Add("Open OLED Saver", null, (s, e) => RestoreFromTray());
             _trayMenu.Items.Add(new ToolStripSeparator());
-            _trayMenu.Items.Add("⏻ Blackout Now (Ctrl+Alt+B)", null, (s, e) => TriggerBlackoutNow());
+            _trayMenu.Items.Add("⏻ Trigger Now (Ctrl+Alt+B)", null, (s, e) => TriggerBlackoutNow());
 
             ToolStripMenuItem pauseItem = new ToolStripMenuItem("❚❚ Pause Timer");
             pauseItem.Click += (s, e) => TogglePause();
@@ -496,13 +538,13 @@ namespace OLEDSaver
         private void InitializeInputAndBlackout()
         {
             _inputWatcher = new InputWatcher(this.Handle);
-            _blackoutManager = new BlackoutManager();
+            _blackoutManager = new BlackoutManager(this.Handle);
 
             _blackoutManager.BlackoutStarted += (s, e) =>
             {
                 this.BeginInvoke((Action)(() =>
                 {
-                    _lblStatusBadge.Text = "● BLACKOUT";
+                    _lblStatusBadge.Text = (_settings.ScreenAction == "HardwarePowerOff") ? "● SCREENS OFF" : "● BLACKOUT";
                     _lblStatusBadge.ForeColor = ColAccent;
                     _lblStatusBadge.BackColor = Color.FromArgb(16, 45, 38);
                 }));
@@ -583,10 +625,43 @@ namespace OLEDSaver
             _numMinutes.Value = Math.Max(1, Math.Min(180, _settings.TimeoutMinutes));
             _rbKeyboardOnly.Checked = (_settings.IdleMode == "KeyboardOnly");
             _rbKeyboardAndMouse.Checked = (_settings.IdleMode != "KeyboardOnly");
+            _rbActionBlackout.Checked = (_settings.ScreenAction != "HardwarePowerOff");
+            _rbActionPowerOff.Checked = (_settings.ScreenAction == "HardwarePowerOff");
+            UpdateScreenActionUI();
             _chkStartWithWindows.Checked = _settings.StartWithWindows;
             _chkMinimizeToTray.Checked = _settings.MinimizeToTrayOnClose;
             _chkHotkey.Checked = _settings.HotkeyEnabled;
             UpdateStatusBadge();
+        }
+
+        private void ScreenAction_CheckedChanged(object sender, EventArgs e)
+        {
+            _settings.ScreenAction = _rbActionPowerOff.Checked ? "HardwarePowerOff" : "BlackoutOverlay";
+            _settings.Save();
+            UpdateScreenActionUI();
+        }
+
+        private void UpdateScreenActionUI()
+        {
+            bool isPowerOff = (_settings.ScreenAction == "HardwarePowerOff");
+            _clbDisplays.Enabled = !isPowerOff;
+            _btnSelectAllDisplays.Enabled = !isPowerOff;
+            _btnSelectExternalsOnly.Enabled = !isPowerOff;
+            _btnSelectPrimaryOnly.Enabled = !isPowerOff;
+            _btnRefreshDisplays.Enabled = !isPowerOff;
+
+            if (isPowerOff)
+            {
+                _btnBlackoutNow.Text = "⏻ Turn Off Now";
+                _lblActionHint.Text = "⚡ Hardware Power Off mode puts all connected monitors into DPMS standby (No Signal).";
+                _clbDisplays.BackColor = Color.FromArgb(24, 28, 38);
+            }
+            else
+            {
+                _btnBlackoutNow.Text = "⏻ Blackout Now";
+                _lblActionHint.Text = "🌟 Pure OLED Blackout Overlay shuts off OLED pixels with 0ms resume on selected monitors.";
+                _clbDisplays.BackColor = ColButtonDark;
+            }
         }
 
         private void NumMinutes_ValueChanged(object sender, EventArgs e)
@@ -650,7 +725,9 @@ namespace OLEDSaver
             {
                 _lblCountdown.Text = "00:00";
                 _progressBar.Value = _progressBar.Maximum;
-                _lblIdleDetails.Text = "Selected screens are pitch black. Move mouse or press any key to resume.";
+                _lblIdleDetails.Text = (_settings.ScreenAction == "HardwarePowerOff")
+                    ? "Screens are in hardware standby (No Signal). Move mouse or press any key to resume."
+                    : "Selected screens are pitch black. Move mouse or press any key to resume.";
                 return;
             }
 
@@ -691,7 +768,8 @@ namespace OLEDSaver
             if (pct > 1) pct = 1;
             _progressBar.Value = (int)(pct * _progressBar.Maximum);
 
-            string trayText = string.Format("OLED Saver - Blank in {0:D2}:{1:D2}", remMin, remSec);
+            string actionLabel = (_settings.ScreenAction == "HardwarePowerOff") ? "Off" : "Blank";
+            string trayText = string.Format("OLED Saver - {0} in {1:D2}:{2:D2}", actionLabel, remMin, remSec);
             if (trayText.Length > 63) trayText = trayText.Substring(0, 63);
             _trayIcon.Text = trayText;
         }
@@ -717,8 +795,7 @@ namespace OLEDSaver
                 }
             }
 
-            // Only black out the user-selected monitors with stable 1.2s grace period!
-            _blackoutManager.StartBlackout(targetBounds, _settings.WakeSensitivityPixels);
+            _blackoutManager.StartAction(_settings.ScreenAction, targetBounds, _settings.WakeSensitivityPixels);
         }
 
         private void TogglePause()
@@ -755,7 +832,7 @@ namespace OLEDSaver
             }
             else if (_blackoutManager != null && _blackoutManager.IsBlackoutActive)
             {
-                _lblStatusBadge.Text = "● BLACKOUT";
+                _lblStatusBadge.Text = (_settings.ScreenAction == "HardwarePowerOff") ? "● SCREENS OFF" : "● BLACKOUT";
                 _lblStatusBadge.ForeColor = ColAccent;
                 _lblStatusBadge.BackColor = Color.FromArgb(16, 45, 38);
             }

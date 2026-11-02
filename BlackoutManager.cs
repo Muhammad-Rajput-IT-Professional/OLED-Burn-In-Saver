@@ -1,17 +1,28 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace OLEDSaver
 {
     public class BlackoutManager : IDisposable
     {
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
+
+        private const int WM_SYSCOMMAND = 0x0112;
+        private const int SC_MONITORPOWER = 0xF170;
+        private const int MONITOR_OFF = 2;
+        private const int MONITOR_ON = -1;
+
         private List<BlackoutForm> _activeForms = new List<BlackoutForm>();
         private Timer _wakeWatchTimer;
         private Point _blankedCursorPos;
         private int _sensitivityPixels = 10;
         private bool _isCursorHidden = false;
+        private bool _isHardwarePowerOff = false;
+        private IntPtr _hostHwnd = IntPtr.Zero;
         private long _blackoutStartTick = 0;
         private const int GRACE_PERIOD_MS = 1200; // 1.2s grace period to ignore synthetic window events
         private object _lock = new object();
@@ -21,14 +32,15 @@ namespace OLEDSaver
         public event EventHandler BlackoutStarted;
         public event EventHandler BlackoutEnded;
 
-        public BlackoutManager()
+        public BlackoutManager(IntPtr hostHwnd)
         {
+            _hostHwnd = hostHwnd;
             _wakeWatchTimer = new Timer();
             _wakeWatchTimer.Interval = 50;
             _wakeWatchTimer.Tick += WakeWatchTimer_Tick;
         }
 
-        public void StartBlackout(List<Rectangle> targetScreenBounds, int sensitivityPixels)
+        public void StartAction(string screenAction, List<Rectangle> targetScreenBounds, int sensitivityPixels)
         {
             lock (_lock)
             {
@@ -37,20 +49,36 @@ namespace OLEDSaver
                 _sensitivityPixels = Math.Max(4, sensitivityPixels);
                 _blackoutStartTick = Environment.TickCount;
                 _blankedCursorPos = Cursor.Position;
+                _isHardwarePowerOff = (screenAction == "HardwarePowerOff");
 
-                // Create a blackout form on each selected monitor only
-                foreach (Rectangle bounds in targetScreenBounds)
+                if (_isHardwarePowerOff)
                 {
-                    BlackoutForm form = new BlackoutForm(bounds, _sensitivityPixels, RequestWakeUp);
-                    _activeForms.Add(form);
-                    form.Show();
+                    // Hardware Screen Power Off (Standby / No Signal)
+                    // Windows GPU stops sending video signal to all displays
+                    try
+                    {
+                        SendMessage(_hostHwnd, WM_SYSCOMMAND, (IntPtr)SC_MONITORPOWER, (IntPtr)MONITOR_OFF);
+                    }
+                    catch
+                    {
+                    }
                 }
-
-                // Hide cursor while blackout is active
-                if (!_isCursorHidden)
+                else
                 {
-                    Cursor.Hide();
-                    _isCursorHidden = true;
+                    // Pure OLED Blackout Overlay (#000000)
+                    // Creates true pitch-black window on selected monitors only
+                    foreach (Rectangle bounds in targetScreenBounds)
+                    {
+                        BlackoutForm form = new BlackoutForm(bounds, _sensitivityPixels, RequestWakeUp);
+                        _activeForms.Add(form);
+                        form.Show();
+                    }
+
+                    if (!_isCursorHidden)
+                    {
+                        Cursor.Hide();
+                        _isCursorHidden = true;
+                    }
                 }
 
                 _wakeWatchTimer.Start();
@@ -70,25 +98,39 @@ namespace OLEDSaver
 
                 _wakeWatchTimer.Stop();
 
-                // Close all blackout forms immediately
-                foreach (BlackoutForm form in _activeForms)
+                if (_isHardwarePowerOff)
                 {
+                    // Restore display power
                     try
                     {
-                        form.Close();
-                        form.Dispose();
+                        SendMessage(_hostHwnd, WM_SYSCOMMAND, (IntPtr)SC_MONITORPOWER, (IntPtr)MONITOR_ON);
                     }
                     catch
                     {
                     }
+                    _isHardwarePowerOff = false;
                 }
-                _activeForms.Clear();
-
-                // Restore cursor
-                if (_isCursorHidden)
+                else
                 {
-                    Cursor.Show();
-                    _isCursorHidden = false;
+                    // Close all blackout forms
+                    foreach (BlackoutForm form in _activeForms)
+                    {
+                        try
+                        {
+                            form.Close();
+                            form.Dispose();
+                        }
+                        catch
+                        {
+                        }
+                    }
+                    _activeForms.Clear();
+
+                    if (_isCursorHidden)
+                    {
+                        Cursor.Show();
+                        _isCursorHidden = false;
+                    }
                 }
 
                 IsBlackoutActive = false;

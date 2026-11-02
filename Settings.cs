@@ -10,6 +10,7 @@ namespace OLEDSaver
     {
         public int TimeoutMinutes { get; set; }
         public string IdleMode { get; set; } // "KeyboardOnly" or "KeyboardAndMouse"
+        public string ScreenAction { get; set; } // "BlackoutOverlay" or "HardwarePowerOff"
         public int WakeSensitivityPixels { get; set; } // default 10
         public bool StartWithWindows { get; set; }
         public bool MinimizeToTrayOnClose { get; set; }
@@ -20,6 +21,7 @@ namespace OLEDSaver
         {
             TimeoutMinutes = 5;
             IdleMode = "KeyboardOnly";
+            ScreenAction = "BlackoutOverlay";
             WakeSensitivityPixels = 10;
             StartWithWindows = false;
             MinimizeToTrayOnClose = true;
@@ -52,6 +54,7 @@ namespace OLEDSaver
                 string text = File.ReadAllText(path, Encoding.UTF8);
                 settings.TimeoutMinutes = ParseInt(text, "TimeoutMinutes", 5);
                 settings.IdleMode = ParseString(text, "IdleMode", "KeyboardOnly");
+                settings.ScreenAction = ParseString(text, "ScreenAction", "BlackoutOverlay");
                 settings.WakeSensitivityPixels = ParseInt(text, "WakeSensitivityPixels", 10);
                 settings.StartWithWindows = ParseBool(text, "StartWithWindows", false);
                 settings.MinimizeToTrayOnClose = ParseBool(text, "MinimizeToTrayOnClose", true);
@@ -74,6 +77,7 @@ namespace OLEDSaver
                 sb.AppendLine("{");
                 sb.AppendFormat("  \"TimeoutMinutes\": {0},\n", TimeoutMinutes);
                 sb.AppendFormat("  \"IdleMode\": \"{0}\",\n", Escape(IdleMode));
+                sb.AppendFormat("  \"ScreenAction\": \"{0}\",\n", Escape(ScreenAction));
                 sb.AppendFormat("  \"WakeSensitivityPixels\": {0},\n", WakeSensitivityPixels);
                 sb.AppendFormat("  \"StartWithWindows\": {0},\n", StartWithWindows ? "true" : "false");
                 sb.AppendFormat("  \"MinimizeToTrayOnClose\": {0},\n", MinimizeToTrayOnClose ? "true" : "false");
