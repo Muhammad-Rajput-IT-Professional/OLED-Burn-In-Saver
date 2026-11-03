@@ -30,6 +30,7 @@ namespace OLEDSaver
         private Timer _uiUpdateTimer;
         private bool _isPaused = false;
         private bool _isHotKeyRegistered = false;
+        private bool _wasVisibleBeforeBlackout = false;
 
         // UI Components
         private NotifyIcon _trayIcon;
@@ -547,6 +548,17 @@ namespace OLEDSaver
                     _lblStatusBadge.Text = (_settings.ScreenAction == "HardwarePowerOff") ? "● SCREENS OFF" : "● BLACKOUT";
                     _lblStatusBadge.ForeColor = ColAccent;
                     _lblStatusBadge.BackColor = Color.FromArgb(16, 45, 38);
+
+                    // If blackout overlay is active and MainForm is on screen, hide it so the primary display is completely black!
+                    if (_settings.ScreenAction == "BlackoutOverlay" && this.Visible && this.WindowState != FormWindowState.Minimized)
+                    {
+                        _wasVisibleBeforeBlackout = true;
+                        this.Hide();
+                    }
+                    else
+                    {
+                        _wasVisibleBeforeBlackout = false;
+                    }
                 }));
             };
 
@@ -559,6 +571,16 @@ namespace OLEDSaver
                 this.BeginInvoke((Action)(() =>
                 {
                     UpdateStatusBadge();
+
+                    // Restore MainForm if it was open before blackout
+                    if (_wasVisibleBeforeBlackout)
+                    {
+                        this.Show();
+                        this.WindowState = FormWindowState.Normal;
+                        this.BringToFront();
+                        this.Activate();
+                        _wasVisibleBeforeBlackout = false;
+                    }
                 }));
             };
 
@@ -779,11 +801,23 @@ namespace OLEDSaver
             if (_blackoutManager.IsBlackoutActive) return;
 
             List<Rectangle> targetBounds = new List<Rectangle>();
-            foreach (DisplayInfo d in _displays)
+
+            // Query live Screen.AllScreens directly to ensure 100% exact hardware coordinates
+            foreach (Screen s in Screen.AllScreens)
             {
-                if (d.IsSelected)
+                bool isSelected = false;
+                foreach (DisplayInfo d in _displays)
                 {
-                    targetBounds.Add(d.Bounds);
+                    if (d.DeviceName == s.DeviceName && d.IsSelected)
+                    {
+                        isSelected = true;
+                        break;
+                    }
+                }
+
+                if (isSelected)
+                {
+                    targetBounds.Add(s.Bounds);
                 }
             }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace OLEDSaver
@@ -9,14 +10,21 @@ namespace OLEDSaver
         private const int WS_EX_TOOLWINDOW = 0x00000080;
         private const int WS_EX_TOPMOST = 0x00000008;
 
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+        private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        private const uint SWP_SHOWWINDOW = 0x0040;
+
         private Point _initialCursorPos;
         private int _sensitivity;
         private Action _onWakeRequested;
         private bool _isClosing = false;
         private long _showTick = 0;
+        private Rectangle _targetBounds;
 
         public BlackoutForm(Rectangle bounds, int sensitivityPixels, Action onWakeRequested)
         {
+            _targetBounds = bounds;
             _sensitivity = Math.Max(2, sensitivityPixels);
             _onWakeRequested = onWakeRequested;
             _showTick = Environment.TickCount;
@@ -51,6 +59,16 @@ namespace OLEDSaver
             base.OnShown(e);
             _showTick = Environment.TickCount;
             _initialCursorPos = Cursor.Position;
+
+            // Enforce absolute top of Z-order covering taskbar, app windows, and full primary/external screen
+            try
+            {
+                SetWindowPos(this.Handle, HWND_TOPMOST, _targetBounds.X, _targetBounds.Y, _targetBounds.Width, _targetBounds.Height, SWP_SHOWWINDOW);
+                this.BringToFront();
+            }
+            catch
+            {
+            }
         }
 
         protected override void OnPaintBackground(PaintEventArgs pevent)
