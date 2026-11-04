@@ -689,8 +689,23 @@ namespace OLEDSaver
                 _lblActionHint.ForeColor = ColWarning;
                 _btnBlackoutNow.Text = "⚡ Turn Off Screens Now";
                 if (_trayActionItem != null) _trayActionItem.Text = "⚡ Turn Off Screens Now (Ctrl+Alt+B)";
-                _lblDisplaysTitle.Text = "TARGET DISPLAYS (OVERLAY MODE ONLY - HARDWARE POWER OFF AFFECTS ALL DISPLAYS)";
-                _lblDisplaysTitle.ForeColor = ColTextSecondary;
+                _lblDisplaysTitle.Text = "TARGET DISPLAYS (NOT APPLICABLE — HARDWARE STANDBY TURNS OFF ALL DISPLAYS)";
+                _lblDisplaysTitle.ForeColor = Color.FromArgb(125, 130, 145);
+
+                // Disable display selection since hardware standby inherently affects all screens
+                _clbDisplays.Enabled = false;
+                _clbDisplays.BackColor = Color.FromArgb(18, 22, 30);
+                _clbDisplays.ForeColor = Color.FromArgb(100, 105, 115);
+
+                _btnSelectAllDisplays.Enabled = false;
+                _btnSelectExternalsOnly.Enabled = false;
+                _btnSelectPrimaryOnly.Enabled = false;
+                _btnRefreshDisplays.Enabled = false;
+
+                _btnSelectAllDisplays.ForeColor = Color.FromArgb(90, 95, 105);
+                _btnSelectExternalsOnly.ForeColor = Color.FromArgb(90, 95, 105);
+                _btnSelectPrimaryOnly.ForeColor = Color.FromArgb(90, 95, 105);
+                _btnRefreshDisplays.ForeColor = Color.FromArgb(90, 95, 105);
             }
             else
             {
@@ -700,6 +715,21 @@ namespace OLEDSaver
                 if (_trayActionItem != null) _trayActionItem.Text = "⏻ Blackout Now (Ctrl+Alt+B)";
                 _lblDisplaysTitle.Text = "TARGET DISPLAYS TO BLACKOUT (OVERLAY MODE)";
                 _lblDisplaysTitle.ForeColor = ColTextSecondary;
+
+                // Re-enable display selection for overlay mode
+                _clbDisplays.Enabled = true;
+                _clbDisplays.BackColor = ColButtonDark;
+                _clbDisplays.ForeColor = ColTextPrimary;
+
+                _btnSelectAllDisplays.Enabled = true;
+                _btnSelectExternalsOnly.Enabled = true;
+                _btnSelectPrimaryOnly.Enabled = true;
+                _btnRefreshDisplays.Enabled = true;
+
+                _btnSelectAllDisplays.ForeColor = ColTextPrimary;
+                _btnSelectExternalsOnly.ForeColor = ColTextPrimary;
+                _btnSelectPrimaryOnly.ForeColor = ColTextPrimary;
+                _btnRefreshDisplays.ForeColor = ColTextSecondary;
             }
         }
 
