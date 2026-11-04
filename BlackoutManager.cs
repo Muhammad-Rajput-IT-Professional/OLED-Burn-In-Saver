@@ -11,6 +11,10 @@ namespace OLEDSaver
         [DllImport("user32.dll")]
         private static extern IntPtr SendMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
 
+        [DllImport("user32.dll")]
+        private static extern IntPtr DefWindowProc(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
+
+        private static readonly IntPtr HWND_BROADCAST = new IntPtr(0xFFFF);
         private const int WM_SYSCOMMAND = 0x0112;
         private const int SC_MONITORPOWER = 0xF170;
         private const int MONITOR_OFF = 2;
@@ -24,7 +28,7 @@ namespace OLEDSaver
         private bool _isHardwarePowerOff = false;
         private IntPtr _hostHwnd = IntPtr.Zero;
         private long _blackoutStartTick = 0;
-        private const int GRACE_PERIOD_MS = 1200; // 1.2s grace period to ignore synthetic window events
+        private const int GRACE_PERIOD_MS = 1500; // 1.5s grace period to ignore click settling and synthetic events
         private object _lock = new object();
 
         public bool IsBlackoutActive { get; private set; }
@@ -54,14 +58,25 @@ namespace OLEDSaver
                 if (_isHardwarePowerOff)
                 {
                     // Hardware Screen Power Off (Standby / No Signal)
-                    // Windows GPU stops sending video signal to all displays
-                    try
+                    // Windows GPU stops sending video signal to all displays.
+                    // We run on a 350ms delay so the physical mouse button release
+                    // has completely settled and does not abort display sleep!
+                    IntPtr hwnd = _hostHwnd;
+                    System.Threading.ThreadPool.QueueUserWorkItem((state) =>
                     {
-                        SendMessage(_hostHwnd, WM_SYSCOMMAND, (IntPtr)SC_MONITORPOWER, (IntPtr)MONITOR_OFF);
-                    }
-                    catch
-                    {
-                    }
+                        System.Threading.Thread.Sleep(350);
+                        try
+                        {
+                            SendMessage(HWND_BROADCAST, WM_SYSCOMMAND, (IntPtr)SC_MONITORPOWER, (IntPtr)MONITOR_OFF);
+                            if (hwnd != IntPtr.Zero)
+                            {
+                                DefWindowProc(hwnd, WM_SYSCOMMAND, (IntPtr)SC_MONITORPOWER, (IntPtr)MONITOR_OFF);
+                            }
+                        }
+                        catch
+                        {
+                        }
+                    });
                 }
                 else
                 {
@@ -103,7 +118,11 @@ namespace OLEDSaver
                     // Restore display power
                     try
                     {
-                        SendMessage(_hostHwnd, WM_SYSCOMMAND, (IntPtr)SC_MONITORPOWER, (IntPtr)MONITOR_ON);
+                        SendMessage(HWND_BROADCAST, WM_SYSCOMMAND, (IntPtr)SC_MONITORPOWER, (IntPtr)MONITOR_ON);
+                        if (_hostHwnd != IntPtr.Zero)
+                        {
+                            DefWindowProc(_hostHwnd, WM_SYSCOMMAND, (IntPtr)SC_MONITORPOWER, (IntPtr)MONITOR_ON);
+                        }
                     }
                     catch
                     {
@@ -146,7 +165,7 @@ namespace OLEDSaver
         {
             if (!IsBlackoutActive) return;
 
-            // Grace period: ignore mouse movement during initial 1.2 seconds so settling motion doesn't cause instant wake-up
+            // Grace period: ignore mouse movement during initial 1.5 seconds so settling motion doesn't cause instant wake-up
             long elapsed = Environment.TickCount - _blackoutStartTick;
             if (elapsed < GRACE_PERIOD_MS)
             {
