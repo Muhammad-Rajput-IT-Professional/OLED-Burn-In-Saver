@@ -31,6 +31,7 @@ namespace OLEDSaver
         private bool _isPaused = false;
         private bool _isHotKeyRegistered = false;
         private bool _wasVisibleBeforeBlackout = false;
+        private bool _initialMinimized = false;
         private long _lastWakeTick = 0;
 
         // UI Components
@@ -95,7 +96,7 @@ namespace OLEDSaver
 
             if (startMinimized)
             {
-                this.WindowState = FormWindowState.Minimized;
+                _initialMinimized = true;
                 this.ShowInTaskbar = false;
             }
         }
@@ -115,6 +116,10 @@ namespace OLEDSaver
                 if (System.IO.File.Exists("app.ico"))
                 {
                     this.Icon = new Icon("app.ico");
+                }
+                else
+                {
+                    this.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
                 }
             }
             catch
@@ -525,13 +530,17 @@ namespace OLEDSaver
 
             try
             {
-                if (System.IO.File.Exists("app.ico"))
+                if (this.Icon != null)
+                {
+                    _trayIcon.Icon = this.Icon;
+                }
+                else if (System.IO.File.Exists("app.ico"))
                 {
                     _trayIcon.Icon = new Icon("app.ico");
                 }
                 else
                 {
-                    _trayIcon.Icon = SystemIcons.Application;
+                    _trayIcon.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
                 }
             }
             catch
@@ -957,10 +966,21 @@ namespace OLEDSaver
             }
         }
 
+        protected override void SetVisibleCore(bool value)
+        {
+            if (_initialMinimized)
+            {
+                value = false;
+                if (!this.IsHandleCreated) CreateHandle();
+            }
+            base.SetVisibleCore(value);
+        }
+
         private void MainForm_Resize(object sender, EventArgs e)
         {
             if (this.WindowState == FormWindowState.Minimized && _settings.MinimizeToTrayOnClose)
             {
+                this.Hide();
                 this.ShowInTaskbar = false;
             }
         }
@@ -970,7 +990,7 @@ namespace OLEDSaver
             if (e.CloseReason == CloseReason.UserClosing && _settings.MinimizeToTrayOnClose)
             {
                 e.Cancel = true;
-                this.WindowState = FormWindowState.Minimized;
+                this.Hide();
                 this.ShowInTaskbar = false;
                 _trayIcon.ShowBalloonTip(1500, "OLED Blackout Saver", "Running silently in background. Double-click tray icon to open.", ToolTipIcon.Info);
             }
@@ -978,9 +998,10 @@ namespace OLEDSaver
 
         private void RestoreFromTray()
         {
+            _initialMinimized = false;
+            this.Show();
             this.ShowInTaskbar = true;
             this.WindowState = FormWindowState.Normal;
-            this.Show();
             this.BringToFront();
             this.Activate();
         }
