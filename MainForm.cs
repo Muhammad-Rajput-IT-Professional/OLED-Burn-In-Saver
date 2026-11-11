@@ -25,6 +25,7 @@ namespace OLEDSaver
         private AppSettings _settings;
         private InputWatcher _inputWatcher;
         private BlackoutManager _blackoutManager;
+        private TeamsWatcher _teamsWatcher;
         private List<DisplayInfo> _displays;
 
         private Timer _uiUpdateTimer;
@@ -62,6 +63,14 @@ namespace OLEDSaver
         private Button _btnSelectExternalsOnly;
         private Button _btnSelectPrimaryOnly;
         private Button _btnRefreshDisplays;
+
+        private CheckBox _chkTeamsEnable;
+        private Label _lblTeamsCurrentStatus;
+        private CheckBox _chkTeamsInCall;
+        private CheckBox _chkTeamsPresenting;
+        private CheckBox _chkTeamsBusy;
+        private CheckBox _chkTeamsDnd;
+        private CheckBox _chkTeamsAway;
 
         private CheckBox _chkStartWithWindows;
         private CheckBox _chkMinimizeToTray;
@@ -409,7 +418,82 @@ namespace OLEDSaver
             yOffset = cardDisplays.Bottom + 16;
 
             // ========================================================
-            // 5. Preferences & Wake-up Behavior
+            // 5. Microsoft Teams Status Integration Card
+            // ========================================================
+            Panel cardTeams = CreateCard(contentPanel, ref yOffset, 245);
+
+            Label lblTeamsTitle = new Label();
+            lblTeamsTitle.Text = "MICROSOFT TEAMS STATUS INTEGRATION";
+            lblTeamsTitle.UseMnemonic = false;
+            lblTeamsTitle.Font = new Font("Segoe UI", 8.5f, FontStyle.Bold);
+            lblTeamsTitle.ForeColor = ColTextSecondary;
+            lblTeamsTitle.Location = new Point(24, 14);
+            lblTeamsTitle.AutoSize = true;
+            cardTeams.Controls.Add(lblTeamsTitle);
+
+            _chkTeamsEnable = new CheckBox();
+            _chkTeamsEnable.Text = "Pause countdown based on Microsoft Teams call / presence status";
+            _chkTeamsEnable.Location = new Point(24, lblTeamsTitle.Bottom + 10);
+            _chkTeamsEnable.AutoSize = true;
+            _chkTeamsEnable.Checked = _settings.TeamsDetectionEnabled;
+            _chkTeamsEnable.CheckedChanged += ChkTeamsEnable_CheckedChanged;
+            cardTeams.Controls.Add(_chkTeamsEnable);
+
+            _lblTeamsCurrentStatus = new Label();
+            _lblTeamsCurrentStatus.Text = "Current Teams Status: Checking...";
+            _lblTeamsCurrentStatus.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+            _lblTeamsCurrentStatus.ForeColor = Color.FromArgb(120, 180, 255);
+            _lblTeamsCurrentStatus.Location = new Point(24, _chkTeamsEnable.Bottom + 8);
+            _lblTeamsCurrentStatus.AutoSize = true;
+            cardTeams.Controls.Add(_lblTeamsCurrentStatus);
+
+            Label lblTeamsSub = new Label();
+            lblTeamsSub.Text = "Prevent screensaver and pause timer when Teams status is:";
+            lblTeamsSub.ForeColor = ColTextSecondary;
+            lblTeamsSub.Location = new Point(24, _lblTeamsCurrentStatus.Bottom + 8);
+            lblTeamsSub.AutoSize = true;
+            cardTeams.Controls.Add(lblTeamsSub);
+
+            _chkTeamsInCall = new CheckBox();
+            _chkTeamsInCall.Text = "🔴 In a Call / Meeting (Active audio/video stream or meeting window)";
+            _chkTeamsInCall.Location = new Point(36, lblTeamsSub.Bottom + 8);
+            _chkTeamsInCall.AutoSize = true;
+            _chkTeamsInCall.CheckedChanged += TeamsStatusCheckbox_CheckedChanged;
+            cardTeams.Controls.Add(_chkTeamsInCall);
+
+            _chkTeamsPresenting = new CheckBox();
+            _chkTeamsPresenting.Text = "🟣 Presenting / Sharing Screen";
+            _chkTeamsPresenting.Location = new Point(36, _chkTeamsInCall.Bottom + 6);
+            _chkTeamsPresenting.AutoSize = true;
+            _chkTeamsPresenting.CheckedChanged += TeamsStatusCheckbox_CheckedChanged;
+            cardTeams.Controls.Add(_chkTeamsPresenting);
+
+            _chkTeamsBusy = new CheckBox();
+            _chkTeamsBusy.Text = "🔴 Busy";
+            _chkTeamsBusy.Location = new Point(36, _chkTeamsPresenting.Bottom + 6);
+            _chkTeamsBusy.AutoSize = true;
+            _chkTeamsBusy.CheckedChanged += TeamsStatusCheckbox_CheckedChanged;
+            cardTeams.Controls.Add(_chkTeamsBusy);
+
+            _chkTeamsDnd = new CheckBox();
+            _chkTeamsDnd.Text = "⛔ Do Not Disturb";
+            _chkTeamsDnd.Location = new Point(36, _chkTeamsBusy.Bottom + 6);
+            _chkTeamsDnd.AutoSize = true;
+            _chkTeamsDnd.CheckedChanged += TeamsStatusCheckbox_CheckedChanged;
+            cardTeams.Controls.Add(_chkTeamsDnd);
+
+            _chkTeamsAway = new CheckBox();
+            _chkTeamsAway.Text = "🟡 Away / Be Right Back";
+            _chkTeamsAway.Location = new Point(36, _chkTeamsDnd.Bottom + 6);
+            _chkTeamsAway.AutoSize = true;
+            _chkTeamsAway.CheckedChanged += TeamsStatusCheckbox_CheckedChanged;
+            cardTeams.Controls.Add(_chkTeamsAway);
+
+            cardTeams.Height = _chkTeamsAway.Bottom + 16;
+            yOffset = cardTeams.Bottom + 16;
+
+            // ========================================================
+            // 6. Preferences & Wake-up Behavior
             // ========================================================
             Panel cardOptions = CreateCard(contentPanel, ref yOffset, 175);
 
@@ -616,6 +700,18 @@ namespace OLEDSaver
                 }));
             };
 
+            _teamsWatcher = new TeamsWatcher();
+            _teamsWatcher.StatusChanged += (s, e) =>
+            {
+                try
+                {
+                    this.BeginInvoke((Action)(() => UpdateTeamsUI()));
+                }
+                catch
+                {
+                }
+            };
+
             UpdateHotkey();
         }
 
@@ -752,8 +848,70 @@ namespace OLEDSaver
             _chkStartWithWindows.Checked = _settings.StartWithWindows;
             _chkMinimizeToTray.Checked = _settings.MinimizeToTrayOnClose;
             _chkHotkey.Checked = _settings.HotkeyEnabled;
+
+            _chkTeamsEnable.Checked = _settings.TeamsDetectionEnabled;
+            if (_settings.TeamsPreventStatuses == null)
+            {
+                _settings.TeamsPreventStatuses = new List<string> { "InACall", "Presenting", "Busy" };
+            }
+            _chkTeamsInCall.Checked = _settings.TeamsPreventStatuses.Contains("InACall");
+            _chkTeamsPresenting.Checked = _settings.TeamsPreventStatuses.Contains("Presenting");
+            _chkTeamsBusy.Checked = _settings.TeamsPreventStatuses.Contains("Busy");
+            _chkTeamsDnd.Checked = _settings.TeamsPreventStatuses.Contains("DoNotDisturb");
+            _chkTeamsAway.Checked = _settings.TeamsPreventStatuses.Contains("Away");
+            UpdateTeamsUI();
+
             UpdateActionUI();
             UpdateStatusBadge();
+        }
+
+        private void ChkTeamsEnable_CheckedChanged(object sender, EventArgs e)
+        {
+            _settings.TeamsDetectionEnabled = _chkTeamsEnable.Checked;
+            _settings.Save();
+            UpdateTeamsUI();
+        }
+
+        private void TeamsStatusCheckbox_CheckedChanged(object sender, EventArgs e)
+        {
+            List<string> list = new List<string>();
+            if (_chkTeamsInCall.Checked) list.Add("InACall");
+            if (_chkTeamsPresenting.Checked) list.Add("Presenting");
+            if (_chkTeamsBusy.Checked) list.Add("Busy");
+            if (_chkTeamsDnd.Checked) list.Add("DoNotDisturb");
+            if (_chkTeamsAway.Checked) list.Add("Away");
+
+            _settings.TeamsPreventStatuses = list;
+            _settings.Save();
+            UpdateTeamsUI();
+        }
+
+        private void UpdateTeamsUI()
+        {
+            if (_teamsWatcher == null || _lblTeamsCurrentStatus == null) return;
+
+            string statusName = _teamsWatcher.StatusDisplayName;
+            _lblTeamsCurrentStatus.Text = "Current Teams Status: " + statusName;
+
+            bool isBlocking = _settings.TeamsDetectionEnabled && 
+                              _settings.TeamsPreventStatuses != null && 
+                              _settings.TeamsPreventStatuses.Contains(_teamsWatcher.CurrentStatus);
+
+            if (isBlocking)
+            {
+                _lblTeamsCurrentStatus.ForeColor = ColAccent;
+            }
+            else
+            {
+                _lblTeamsCurrentStatus.ForeColor = Color.FromArgb(120, 180, 255);
+            }
+
+            bool enabled = _settings.TeamsDetectionEnabled;
+            _chkTeamsInCall.Enabled = enabled;
+            _chkTeamsPresenting.Enabled = enabled;
+            _chkTeamsBusy.Enabled = enabled;
+            _chkTeamsDnd.Enabled = enabled;
+            _chkTeamsAway.Enabled = enabled;
         }
 
         private void NumMinutes_ValueChanged(object sender, EventArgs e)
@@ -838,6 +996,36 @@ namespace OLEDSaver
                 _progressBar.Value = 0;
                 _lblIdleDetails.Text = "Timer is paused. Click Resume to restart OLED saver.";
                 return;
+            }
+
+            // Check if Microsoft Teams status prevents the screensaver from triggering
+            if (_settings.TeamsDetectionEnabled && _teamsWatcher != null)
+            {
+                string status = _teamsWatcher.CurrentStatus;
+                if (_settings.TeamsPreventStatuses != null && _settings.TeamsPreventStatuses.Contains(status))
+                {
+                    // Reset timer so it never counts down while Teams is in this status
+                    if (_inputWatcher != null)
+                    {
+                        _inputWatcher.ResetTimer();
+                    }
+
+                    _lblCountdown.Text = "PAUSED";
+                    _lblCountdown.ForeColor = Color.FromArgb(70, 160, 245);
+                    _progressBar.Value = 0;
+                    _lblIdleDetails.Text = string.Format("⏸ Paused by Microsoft Teams ({0})", _teamsWatcher.StatusDisplayName);
+
+                    string badgeText = "⏸ TEAMS " + status.ToUpper();
+                    if (badgeText.Length > 16) badgeText = "⏸ TEAMS ACTIVE";
+                    _lblStatusBadge.Text = badgeText;
+                    _lblStatusBadge.ForeColor = Color.FromArgb(120, 180, 255);
+                    _lblStatusBadge.BackColor = Color.FromArgb(20, 35, 60);
+
+                    string teamsTrayText = string.Format("OLED Saver - Paused ({0})", _teamsWatcher.StatusDisplayName);
+                    if (teamsTrayText.Length > 63) teamsTrayText = teamsTrayText.Substring(0, 63);
+                    _trayIcon.Text = teamsTrayText;
+                    return;
+                }
             }
 
             TimeSpan idle = (_settings.IdleMode == "KeyboardOnly")
@@ -1041,6 +1229,7 @@ namespace OLEDSaver
                 if (_uiUpdateTimer != null) _uiUpdateTimer.Dispose();
                 if (_inputWatcher != null) _inputWatcher.Dispose();
                 if (_blackoutManager != null) _blackoutManager.Dispose();
+                if (_teamsWatcher != null) _teamsWatcher.Dispose();
                 if (_trayIcon != null) _trayIcon.Dispose();
             }
             base.Dispose(disposing);

@@ -16,6 +16,8 @@ namespace OLEDSaver
         public bool MinimizeToTrayOnClose { get; set; }
         public bool HotkeyEnabled { get; set; }
         public List<string> SelectedDisplayIds { get; set; }
+        public bool TeamsDetectionEnabled { get; set; }
+        public List<string> TeamsPreventStatuses { get; set; }
 
         public AppSettings()
         {
@@ -27,6 +29,8 @@ namespace OLEDSaver
             MinimizeToTrayOnClose = true;
             HotkeyEnabled = true;
             SelectedDisplayIds = new List<string>();
+            TeamsDetectionEnabled = true;
+            TeamsPreventStatuses = new List<string> { "InACall", "Presenting", "Busy" };
         }
 
         private static string GetConfigPath()
@@ -60,6 +64,12 @@ namespace OLEDSaver
                 settings.MinimizeToTrayOnClose = ParseBool(text, "MinimizeToTrayOnClose", true);
                 settings.HotkeyEnabled = ParseBool(text, "HotkeyEnabled", true);
                 settings.SelectedDisplayIds = ParseStringList(text, "SelectedDisplayIds");
+                settings.TeamsDetectionEnabled = ParseBool(text, "TeamsDetectionEnabled", true);
+                List<string> parsedTeamsStatuses = ParseStringList(text, "TeamsPreventStatuses");
+                if (parsedTeamsStatuses.Count > 0)
+                {
+                    settings.TeamsPreventStatuses = parsedTeamsStatuses;
+                }
             }
             catch
             {
@@ -82,6 +92,13 @@ namespace OLEDSaver
                 sb.AppendFormat("  \"StartWithWindows\": {0},\n", StartWithWindows ? "true" : "false");
                 sb.AppendFormat("  \"MinimizeToTrayOnClose\": {0},\n", MinimizeToTrayOnClose ? "true" : "false");
                 sb.AppendFormat("  \"HotkeyEnabled\": {0},\n", HotkeyEnabled ? "true" : "false");
+                sb.AppendFormat("  \"TeamsDetectionEnabled\": {0},\n", TeamsDetectionEnabled ? "true" : "false");
+                sb.AppendLine("  \"TeamsPreventStatuses\": [");
+                for (int i = 0; i < TeamsPreventStatuses.Count; i++)
+                {
+                    sb.AppendFormat("    \"{0}\"{1}\n", Escape(TeamsPreventStatuses[i]), (i < TeamsPreventStatuses.Count - 1) ? "," : "");
+                }
+                sb.AppendLine("  ],");
                 sb.AppendLine("  \"SelectedDisplayIds\": [");
                 for (int i = 0; i < SelectedDisplayIds.Count; i++)
                 {

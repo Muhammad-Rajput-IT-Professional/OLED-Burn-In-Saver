@@ -10,7 +10,7 @@ if not exist %CSC% (
     exit /b 1
 )
 
-%CSC% /target:winexe /out:OLEDSaver.exe /win32icon:app.ico /win32manifest:app.manifest /platform:anycpu /optimize+ Program.cs MainForm.cs Settings.cs DisplayHelper.cs InputWatcher.cs BlackoutForm.cs BlackoutManager.cs
+%CSC% /target:winexe /out:OLEDSaver.exe /win32icon:app.ico /win32manifest:app.manifest /platform:anycpu /optimize+ Program.cs MainForm.cs Settings.cs DisplayHelper.cs InputWatcher.cs BlackoutForm.cs BlackoutManager.cs TeamsWatcher.cs
 
 if %ERRORLEVEL% EQU 0 (
     echo.
