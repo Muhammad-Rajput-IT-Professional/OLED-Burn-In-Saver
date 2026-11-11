@@ -476,7 +476,7 @@ namespace OLEDSaver
             cardTeams.Controls.Add(_chkTeamsBusy);
 
             _chkTeamsDnd = new CheckBox();
-            _chkTeamsDnd.Text = "⛔ Do Not Disturb";
+            _chkTeamsDnd.Text = "⛔ Do Not Disturb / Out of Office";
             _chkTeamsDnd.Location = new Point(36, _chkTeamsBusy.Bottom + 6);
             _chkTeamsDnd.AutoSize = true;
             _chkTeamsDnd.CheckedChanged += TeamsStatusCheckbox_CheckedChanged;
@@ -894,8 +894,7 @@ namespace OLEDSaver
             _lblTeamsCurrentStatus.Text = "Current Teams Status: " + statusName;
 
             bool isBlocking = _settings.TeamsDetectionEnabled && 
-                              _settings.TeamsPreventStatuses != null && 
-                              _settings.TeamsPreventStatuses.Contains(_teamsWatcher.CurrentStatus);
+                              _teamsWatcher.IsPreventingBlackout(_settings.TeamsPreventStatuses);
 
             if (isBlocking)
             {
@@ -1001,8 +1000,8 @@ namespace OLEDSaver
             // Check if Microsoft Teams status prevents the screensaver from triggering
             if (_settings.TeamsDetectionEnabled && _teamsWatcher != null)
             {
-                string status = _teamsWatcher.CurrentStatus;
-                if (_settings.TeamsPreventStatuses != null && _settings.TeamsPreventStatuses.Contains(status))
+                bool isBlocking = _teamsWatcher.IsPreventingBlackout(_settings.TeamsPreventStatuses);
+                if (isBlocking)
                 {
                     // Reset timer so it never counts down while Teams is in this status
                     if (_inputWatcher != null)
@@ -1013,15 +1012,15 @@ namespace OLEDSaver
                     _lblCountdown.Text = "PAUSED";
                     _lblCountdown.ForeColor = Color.FromArgb(70, 160, 245);
                     _progressBar.Value = 0;
-                    _lblIdleDetails.Text = string.Format("⏸ Paused by Microsoft Teams ({0})", _teamsWatcher.StatusDisplayName);
+                    _lblIdleDetails.Text = string.Format("⏸ Paused by Microsoft Teams ({0})", _teamsWatcher.BlockingReasonDisplayName);
 
-                    string badgeText = "⏸ TEAMS " + status.ToUpper();
-                    if (badgeText.Length > 16) badgeText = "⏸ TEAMS ACTIVE";
+                    string badgeText = "⏸ TEAMS " + _teamsWatcher.PrimaryStatus.ToUpper();
+                    if (badgeText.Length > 18) badgeText = "⏸ TEAMS ACTIVE";
                     _lblStatusBadge.Text = badgeText;
                     _lblStatusBadge.ForeColor = Color.FromArgb(120, 180, 255);
                     _lblStatusBadge.BackColor = Color.FromArgb(20, 35, 60);
 
-                    string teamsTrayText = string.Format("OLED Saver - Paused ({0})", _teamsWatcher.StatusDisplayName);
+                    string teamsTrayText = string.Format("OLED Saver - Paused ({0})", _teamsWatcher.PrimaryStatus);
                     if (teamsTrayText.Length > 63) teamsTrayText = teamsTrayText.Substring(0, 63);
                     _trayIcon.Text = teamsTrayText;
                     return;

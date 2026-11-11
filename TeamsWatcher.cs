@@ -11,15 +11,15 @@ namespace OLEDSaver
 {
     public class TeamsStatusChangedEventArgs : EventArgs
     {
-        public string Status { get; private set; }
+        public string PrimaryStatus { get; private set; }
         public string DisplayName { get; private set; }
-        public bool IsPreventingBlackout { get; private set; }
+        public List<string> ActiveStatuses { get; private set; }
 
-        public TeamsStatusChangedEventArgs(string status, string displayName, bool isPreventing)
+        public TeamsStatusChangedEventArgs(string primaryStatus, string displayName, List<string> activeStatuses)
         {
-            Status = status;
+            PrimaryStatus = primaryStatus;
             DisplayName = displayName;
-            IsPreventingBlackout = isPreventing;
+            ActiveStatuses = activeStatuses;
         }
     }
 
@@ -42,20 +42,24 @@ namespace OLEDSaver
         private object _lock = new object();
         private bool _isDisposed = false;
 
-        public string CurrentStatus { get; private set; }
+        public string PrimaryStatus { get; private set; }
+        public List<string> ActiveStatuses { get; private set; }
         public string StatusDisplayName { get; private set; }
         public string StatusDetails { get; private set; }
+        public string BlockingReasonDisplayName { get; private set; }
 
         public event EventHandler<TeamsStatusChangedEventArgs> StatusChanged;
 
         public TeamsWatcher()
         {
-            CurrentStatus = "Unknown";
+            PrimaryStatus = "Unknown";
+            ActiveStatuses = new List<string>();
             StatusDisplayName = "Checking...";
             StatusDetails = "";
+            BlockingReasonDisplayName = "";
 
             // Poll every 1.5 seconds on background thread pool
-            _pollTimer = new System.Threading.Timer(PollCallback, null, 500, 1500);
+            _pollTimer = new System.Threading.Timer(PollCallback, null, 250, 1500);
         }
 
         private void PollCallback(object state)
@@ -63,15 +67,17 @@ namespace OLEDSaver
             if (_isDisposed) return;
 
             string details;
-            string newStatus = DetectStatus(out details);
-            string newDisplayName = FormatStatusName(newStatus);
+            List<string> detectedStatuses;
+            string newPrimaryStatus = DetectStatuses(out detectedStatuses, out details);
+            string newDisplayName = FormatMultiStatusDisplayName(detectedStatuses);
 
             bool changed = false;
             lock (_lock)
             {
-                if (newStatus != CurrentStatus || newDetailsDifferent(details))
+                if (newPrimaryStatus != PrimaryStatus || !AreListsEqual(detectedStatuses, ActiveStatuses) || StatusDetails != details)
                 {
-                    CurrentStatus = newStatus;
+                    PrimaryStatus = newPrimaryStatus;
+                    ActiveStatuses = detectedStatuses;
                     StatusDisplayName = newDisplayName;
                     StatusDetails = details;
                     changed = true;
@@ -82,7 +88,7 @@ namespace OLEDSaver
             {
                 try
                 {
-                    StatusChanged(this, new TeamsStatusChangedEventArgs(newStatus, newDisplayName, false));
+                    StatusChanged(this, new TeamsStatusChangedEventArgs(newPrimaryStatus, newDisplayName, detectedStatuses));
                 }
                 catch
                 {
@@ -90,13 +96,47 @@ namespace OLEDSaver
             }
         }
 
-        private bool newDetailsDifferent(string details)
+        private bool AreListsEqual(List<string> a, List<string> b)
         {
-            return StatusDetails != details;
+            if (a == null && b == null) return true;
+            if (a == null || b == null) return false;
+            if (a.Count != b.Count) return false;
+            for (int i = 0; i < a.Count; i++)
+            {
+                if (a[i] != b[i]) return false;
+            }
+            return true;
         }
 
-        public string DetectStatus(out string details)
+        public bool IsPreventingBlackout(List<string> preventStatuses)
         {
+            if (preventStatuses == null || preventStatuses.Count == 0) return false;
+
+            lock (_lock)
+            {
+                // Check if ANY active account's status is in the prevent list
+                foreach (string status in ActiveStatuses)
+                {
+                    if (preventStatuses.Contains(status))
+                    {
+                        BlockingReasonDisplayName = FormatSingleStatusName(status);
+                        return true;
+                    }
+                }
+
+                if (preventStatuses.Contains(PrimaryStatus))
+                {
+                    BlockingReasonDisplayName = FormatSingleStatusName(PrimaryStatus);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public string DetectStatuses(out List<string> allStatuses, out string details)
+        {
+            allStatuses = new List<string>();
             details = "";
 
             // 1. Check if Microsoft Teams process is running at all
@@ -117,49 +157,73 @@ namespace OLEDSaver
             if (!isTeamsRunning)
             {
                 details = "Teams is not running";
+                allStatuses.Add("Offline");
                 return "Offline";
             }
 
             // 2. High Priority: Check if Teams is currently in an active Call / Meeting
-            // A) Windows CapabilityAccessManager (Microphone & Webcam Active Usage)
-            if (IsTeamsMicrophoneOrCameraActive())
+            bool isAudioVideoCall = IsTeamsMicrophoneOrCameraActive();
+            bool isMeetingWindow = HasActiveMeetingWindow();
+
+            if (isAudioVideoCall || isMeetingWindow)
             {
-                details = "Active call / meeting detected (Hardware audio/video active)";
-                return "InACall";
+                allStatuses.Add("InACall");
+                details = isAudioVideoCall
+                    ? "Active call / meeting detected (Microphone/Camera active)"
+                    : "Active meeting window detected";
             }
 
-            // B) Window Title Check for Meeting/Call windows
-            if (HasActiveMeetingWindow())
+            // 3. Multi-Account Presence from Logs
+            List<string> logPresences = GetPresencesFromLogs();
+            foreach (string p in logPresences)
             {
-                details = "Active meeting window detected";
-                return "InACall";
+                if (!allStatuses.Contains(p))
+                {
+                    allStatuses.Add(p);
+                }
             }
 
-            // 3. Check Teams Local Log Files for Presence (Available, Busy, Away, DoNotDisturb, Presenting)
-            string logPresence = CheckLogsForPresence();
-            if (!string.IsNullOrEmpty(logPresence))
+            if (allStatuses.Count == 0)
             {
-                details = "Presence detected from Teams log: " + logPresence;
-                return logPresence;
+                allStatuses.Add("Available");
+                details = "Teams running (idle)";
             }
 
-            details = "Teams running (idle/ready)";
-            return "Available";
+            // Sort all detected statuses by importance/severity
+            allStatuses.Sort((a, b) => GetStatusPriority(b).CompareTo(GetStatusPriority(a)));
+
+            string primary = allStatuses[0];
+            return primary;
+        }
+
+        private static int GetStatusPriority(string status)
+        {
+            switch (status)
+            {
+                case "InACall": return 100;
+                case "Presenting": return 90;
+                case "DoNotDisturb": return 80;
+                case "Busy": return 70;
+                case "Away": return 60;
+                case "Available": return 50;
+                case "Offline": return 10;
+                default: return 0;
+            }
         }
 
         private bool IsTeamsMicrophoneOrCameraActive()
         {
             try
             {
-                // Check Packaged New Teams microphone
+                // Packaged New Teams microphone
                 if (CheckConsentStoreKey(@"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone\MSTeams_8wekyb3d8bbwe"))
                     return true;
 
-                // Check Packaged New Teams webcam
+                // Packaged New Teams webcam
                 if (CheckConsentStoreKey(@"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\webcam\MSTeams_8wekyb3d8bbwe"))
                     return true;
 
-                // Check Classic Teams / NonPackaged entries
+                // Classic Teams / NonPackaged microphone entries
                 using (RegistryKey baseKey = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone\NonPackaged"))
                 {
                     if (baseKey != null)
@@ -215,7 +279,6 @@ namespace OLEDSaver
                     long start = Convert.ToInt64(startObj);
                     long stop = Convert.ToInt64(stopObj);
 
-                    // When currently active: stop is either 0 or start is greater than stop
                     if (stop == 0 && start > 0) return true;
                     if (start > stop) return true;
                 }
@@ -252,8 +315,6 @@ namespace OLEDSaver
 
                         if (!string.IsNullOrEmpty(title))
                         {
-                            // Detect meeting window patterns in Microsoft Teams
-                            // E.g. "Meeting | Microsoft Teams", "Call with John | Microsoft Teams", "| Microsoft Teams, meeting"
                             if (title.IndexOf("Meeting", StringComparison.OrdinalIgnoreCase) >= 0 ||
                                 title.IndexOf("Call with", StringComparison.OrdinalIgnoreCase) >= 0 ||
                                 title.IndexOf(", meeting", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -273,8 +334,10 @@ namespace OLEDSaver
             return meetingFound;
         }
 
-        private string CheckLogsForPresence()
+        private List<string> GetPresencesFromLogs()
         {
+            List<string> presences = new List<string>();
+
             try
             {
                 string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -286,41 +349,53 @@ namespace OLEDSaver
                     FileInfo[] logFiles = dir.GetFiles("MSTeams_*.log");
                     Array.Sort(logFiles, (a, b) => b.LastWriteTime.CompareTo(a.LastWriteTime));
 
-                    // Inspect the 2 most recent log files
                     int filesToCheck = Math.Min(2, logFiles.Length);
                     for (int f = 0; f < filesToCheck; f++)
                     {
-                        string presence = ReadLogTailForPresence(logFiles[f].FullName);
-                        if (!string.IsNullOrEmpty(presence))
+                        List<string> filePresences = ReadLogTailForPresences(logFiles[f].FullName);
+                        foreach (string p in filePresences)
                         {
-                            return presence;
+                            if (!presences.Contains(p))
+                            {
+                                presences.Add(p);
+                            }
+                        }
+
+                        if (presences.Count > 0)
+                        {
+                            break;
                         }
                     }
                 }
 
-                // Check classic Teams log if present
+                // Check classic Teams log if needed
                 string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
                 string classicLog = Path.Combine(appData, @"Microsoft\Teams\logs.txt");
                 if (File.Exists(classicLog))
                 {
-                    string presence = ReadLogTailForPresence(classicLog);
-                    if (!string.IsNullOrEmpty(presence)) return presence;
+                    List<string> classicPresences = ReadLogTailForPresences(classicLog);
+                    foreach (string p in classicPresences)
+                    {
+                        if (!presences.Contains(p)) presences.Add(p);
+                    }
                 }
             }
             catch
             {
             }
 
-            return null;
+            return presences;
         }
 
-        private string ReadLogTailForPresence(string logFilePath)
+        private List<string> ReadLogTailForPresences(string logFilePath)
         {
+            List<string> found = new List<string>();
+
             try
             {
                 using (FileStream fs = new FileStream(logFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
                 {
-                    int bytesToRead = 48 * 1024; // Read last 48 KB
+                    int bytesToRead = 64 * 1024; // Read last 64 KB
                     long offset = Math.Max(0, fs.Length - bytesToRead);
                     fs.Seek(offset, SeekOrigin.Begin);
 
@@ -329,27 +404,57 @@ namespace OLEDSaver
                         string text = reader.ReadToEnd();
                         string[] lines = text.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
 
-                        // Scan backwards for newest presence update
+                        // Track presence per cloud context to support multi-account setups accurately
+                        // E.g. https://teams.microsoft.com (Work) vs https://teams.live.com (Personal)
+                        Dictionary<string, string> contextPresences = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+                        // Scan backwards for the latest presence updates
                         for (int i = lines.Length - 1; i >= 0; i--)
                         {
                             string line = lines[i];
 
-                            // Check UserPresenceAction: {..., availability: XYZ}
-                            Match m = Regex.Match(line, @"UserPresenceAction:.*availability:\s*([A-Za-z0-9_]+)", RegexOptions.IgnoreCase);
-                            if (m.Success)
+                            // Check UserPresenceAction with cloud_context
+                            Match actionMatch = Regex.Match(line, @"UserPresenceAction:.*cloud_context:\s*([^,]+).*availability:\s*([A-Za-z0-9_]+)", RegexOptions.IgnoreCase);
+                            if (actionMatch.Success)
                             {
-                                return NormalizePresence(m.Groups[1].Value);
+                                string context = actionMatch.Groups[1].Value.Trim();
+                                string avail = NormalizePresence(actionMatch.Groups[2].Value);
+                                if (!contextPresences.ContainsKey(context))
+                                {
+                                    contextPresences[context] = avail;
+                                }
                             }
 
-                            // Check UserDataGlobalState presence
-                            Match m2 = Regex.Match(line, @"UserDataGlobalState.*availability:\s*([A-Za-z0-9_]+)", RegexOptions.IgnoreCase);
-                            if (m2.Success)
+                            // Check UserDataGlobalState for all accounts on the machine
+                            if (line.IndexOf("UserDataGlobalState", StringComparison.OrdinalIgnoreCase) >= 0)
                             {
-                                string val = m2.Groups[1].Value;
-                                if (val != "PresenceUnknown" && val != "Offline")
+                                MatchCollection mc = Regex.Matches(line, @"availability:\s*([A-Za-z0-9_]+)", RegexOptions.IgnoreCase);
+                                foreach (Match m in mc)
                                 {
-                                    return NormalizePresence(val);
+                                    string val = m.Groups[1].Value;
+                                    if (val != "PresenceUnknown" && val != "Offline")
+                                    {
+                                        string norm = NormalizePresence(val);
+                                        if (!found.Contains(norm))
+                                        {
+                                            found.Add(norm);
+                                        }
+                                    }
                                 }
+
+                                if (found.Count > 0)
+                                {
+                                    break;
+                                }
+                            }
+                        }
+
+                        // Add presences captured by cloud context
+                        foreach (KeyValuePair<string, string> kvp in contextPresences)
+                        {
+                            if (!found.Contains(kvp.Value) && kvp.Value != "PresenceUnknown" && kvp.Value != "Offline")
+                            {
+                                found.Add(kvp.Value);
                             }
                         }
                     }
@@ -359,7 +464,7 @@ namespace OLEDSaver
             {
             }
 
-            return null;
+            return found;
         }
 
         private string NormalizePresence(string raw)
@@ -369,7 +474,7 @@ namespace OLEDSaver
 
             if (s.Contains("call") || s.Contains("meeting")) return "InACall";
             if (s.Contains("present")) return "Presenting";
-            if (s.Contains("donotdisturb") || s.Contains("dnd")) return "DoNotDisturb";
+            if (s.Contains("donotdisturb") || s.Contains("dnd") || s.Contains("outofoffice") || s.Contains("oof")) return "DoNotDisturb";
             if (s.Contains("busy")) return "Busy";
             if (s.Contains("away") || s.Contains("berightback") || s.Contains("idle")) return "Away";
             if (s.Contains("available") || s.Contains("active")) return "Available";
@@ -378,7 +483,7 @@ namespace OLEDSaver
             return raw;
         }
 
-        public static string FormatStatusName(string status)
+        public static string FormatSingleStatusName(string status)
         {
             switch (status)
             {
@@ -389,9 +494,9 @@ namespace OLEDSaver
                 case "Busy":
                     return "🔴 Busy";
                 case "DoNotDisturb":
-                    return "⛔ Do Not Disturb";
+                    return "⛔ Do Not Disturb / Out of Office";
                 case "Away":
-                    return "🟡 Away";
+                    return "🟡 Away / Be Right Back";
                 case "Available":
                     return "🟢 Available";
                 case "Offline":
@@ -399,6 +504,19 @@ namespace OLEDSaver
                 default:
                     return "⚪ " + status;
             }
+        }
+
+        public static string FormatMultiStatusDisplayName(List<string> statuses)
+        {
+            if (statuses == null || statuses.Count == 0) return "⚪ Unknown";
+
+            List<string> formatted = new List<string>();
+            foreach (string st in statuses)
+            {
+                formatted.Add(FormatSingleStatusName(st));
+            }
+
+            return string.Join(" • ", formatted.ToArray());
         }
 
         public void Dispose()
