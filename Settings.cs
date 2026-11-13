@@ -18,6 +18,7 @@ namespace OLEDSaver
         public List<string> SelectedDisplayIds { get; set; }
         public bool TeamsDetectionEnabled { get; set; }
         public List<string> TeamsPreventStatuses { get; set; }
+        public bool MediaPlaybackDetectionEnabled { get; set; }
 
         public AppSettings()
         {
@@ -31,6 +32,7 @@ namespace OLEDSaver
             SelectedDisplayIds = new List<string>();
             TeamsDetectionEnabled = true;
             TeamsPreventStatuses = new List<string> { "InACall", "Presenting", "Busy" };
+            MediaPlaybackDetectionEnabled = true;
         }
 
         private static string GetConfigPath()
@@ -65,6 +67,7 @@ namespace OLEDSaver
                 settings.HotkeyEnabled = ParseBool(text, "HotkeyEnabled", true);
                 settings.SelectedDisplayIds = ParseStringList(text, "SelectedDisplayIds");
                 settings.TeamsDetectionEnabled = ParseBool(text, "TeamsDetectionEnabled", true);
+                settings.MediaPlaybackDetectionEnabled = ParseBool(text, "MediaPlaybackDetectionEnabled", true);
                 List<string> parsedTeamsStatuses = ParseStringList(text, "TeamsPreventStatuses");
                 if (parsedTeamsStatuses.Count > 0)
                 {
@@ -93,6 +96,7 @@ namespace OLEDSaver
                 sb.AppendFormat("  \"MinimizeToTrayOnClose\": {0},\n", MinimizeToTrayOnClose ? "true" : "false");
                 sb.AppendFormat("  \"HotkeyEnabled\": {0},\n", HotkeyEnabled ? "true" : "false");
                 sb.AppendFormat("  \"TeamsDetectionEnabled\": {0},\n", TeamsDetectionEnabled ? "true" : "false");
+                sb.AppendFormat("  \"MediaPlaybackDetectionEnabled\": {0},\n", MediaPlaybackDetectionEnabled ? "true" : "false");
                 sb.AppendLine("  \"TeamsPreventStatuses\": [");
                 for (int i = 0; i < TeamsPreventStatuses.Count; i++)
                 {

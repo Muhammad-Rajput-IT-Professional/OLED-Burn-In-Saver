@@ -26,6 +26,7 @@ namespace OLEDSaver
         private InputWatcher _inputWatcher;
         private BlackoutManager _blackoutManager;
         private TeamsWatcher _teamsWatcher;
+        private MediaPlaybackWatcher _mediaWatcher;
         private List<DisplayInfo> _displays;
 
         private Timer _uiUpdateTimer;
@@ -71,6 +72,9 @@ namespace OLEDSaver
         private CheckBox _chkTeamsBusy;
         private CheckBox _chkTeamsDnd;
         private CheckBox _chkTeamsAway;
+
+        private CheckBox _chkMediaEnable;
+        private Label _lblMediaCurrentStatus;
 
         private CheckBox _chkStartWithWindows;
         private CheckBox _chkMinimizeToTray;
@@ -493,7 +497,40 @@ namespace OLEDSaver
             yOffset = cardTeams.Bottom + 16;
 
             // ========================================================
-            // 6. Preferences & Wake-up Behavior
+            // 6. Video & Media Playback Detection Card
+            // ========================================================
+            Panel cardMedia = CreateCard(contentPanel, ref yOffset, 120);
+
+            Label lblMediaTitle = new Label();
+            lblMediaTitle.Text = "VIDEO & MEDIA PLAYBACK DETECTION";
+            lblMediaTitle.UseMnemonic = false;
+            lblMediaTitle.Font = new Font("Segoe UI", 8.5f, FontStyle.Bold);
+            lblMediaTitle.ForeColor = ColTextSecondary;
+            lblMediaTitle.Location = new Point(24, 14);
+            lblMediaTitle.AutoSize = true;
+            cardMedia.Controls.Add(lblMediaTitle);
+
+            _chkMediaEnable = new CheckBox();
+            _chkMediaEnable.Text = "Pause countdown when video or media is playing (YouTube, browsers, VLC, MPC, etc.)";
+            _chkMediaEnable.Location = new Point(24, lblMediaTitle.Bottom + 10);
+            _chkMediaEnable.AutoSize = true;
+            _chkMediaEnable.Checked = _settings.MediaPlaybackDetectionEnabled;
+            _chkMediaEnable.CheckedChanged += ChkMediaEnable_CheckedChanged;
+            cardMedia.Controls.Add(_chkMediaEnable);
+
+            _lblMediaCurrentStatus = new Label();
+            _lblMediaCurrentStatus.Text = "Current Status: Checking...";
+            _lblMediaCurrentStatus.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+            _lblMediaCurrentStatus.ForeColor = Color.FromArgb(120, 180, 255);
+            _lblMediaCurrentStatus.Location = new Point(24, _chkMediaEnable.Bottom + 8);
+            _lblMediaCurrentStatus.AutoSize = true;
+            cardMedia.Controls.Add(_lblMediaCurrentStatus);
+
+            cardMedia.Height = _lblMediaCurrentStatus.Bottom + 16;
+            yOffset = cardMedia.Bottom + 16;
+
+            // ========================================================
+            // 7. Preferences & Wake-up Behavior
             // ========================================================
             Panel cardOptions = CreateCard(contentPanel, ref yOffset, 175);
 
@@ -712,6 +749,18 @@ namespace OLEDSaver
                 }
             };
 
+            _mediaWatcher = new MediaPlaybackWatcher();
+            _mediaWatcher.PlaybackChanged += (s, e) =>
+            {
+                try
+                {
+                    this.BeginInvoke((Action)(() => UpdateMediaUI()));
+                }
+                catch
+                {
+                }
+            };
+
             UpdateHotkey();
         }
 
@@ -861,6 +910,9 @@ namespace OLEDSaver
             _chkTeamsAway.Checked = _settings.TeamsPreventStatuses.Contains("Away");
             UpdateTeamsUI();
 
+            _chkMediaEnable.Checked = _settings.MediaPlaybackDetectionEnabled;
+            UpdateMediaUI();
+
             UpdateActionUI();
             UpdateStatusBadge();
         }
@@ -911,6 +963,30 @@ namespace OLEDSaver
             _chkTeamsBusy.Enabled = enabled;
             _chkTeamsDnd.Enabled = enabled;
             _chkTeamsAway.Enabled = enabled;
+        }
+
+        private void ChkMediaEnable_CheckedChanged(object sender, EventArgs e)
+        {
+            _settings.MediaPlaybackDetectionEnabled = _chkMediaEnable.Checked;
+            _settings.Save();
+            UpdateMediaUI();
+        }
+
+        private void UpdateMediaUI()
+        {
+            if (_mediaWatcher == null || _lblMediaCurrentStatus == null) return;
+
+            string statusName = _mediaWatcher.StatusDisplayName;
+            _lblMediaCurrentStatus.Text = "Current Status: " + statusName;
+
+            if (_settings.MediaPlaybackDetectionEnabled && _mediaWatcher.IsMediaPlaying)
+            {
+                _lblMediaCurrentStatus.ForeColor = ColAccent;
+            }
+            else
+            {
+                _lblMediaCurrentStatus.ForeColor = Color.FromArgb(120, 180, 255);
+            }
         }
 
         private void NumMinutes_ValueChanged(object sender, EventArgs e)
@@ -994,6 +1070,30 @@ namespace OLEDSaver
                 _lblCountdown.ForeColor = ColWarning;
                 _progressBar.Value = 0;
                 _lblIdleDetails.Text = "Timer is paused. Click Resume to restart OLED saver.";
+                return;
+            }
+
+            // Check if Video or Media playback prevents the screensaver from triggering
+            if (_settings.MediaPlaybackDetectionEnabled && _mediaWatcher != null && _mediaWatcher.IsMediaPlaying)
+            {
+                if (_inputWatcher != null)
+                {
+                    _inputWatcher.ResetTimer();
+                }
+
+                _lblCountdown.Text = "PAUSED";
+                _lblCountdown.ForeColor = Color.FromArgb(70, 160, 245);
+                _progressBar.Value = 0;
+                string mediaSource = !string.IsNullOrEmpty(_mediaWatcher.ActiveMediaSource) ? _mediaWatcher.ActiveMediaSource : "Active Playback";
+                _lblIdleDetails.Text = string.Format("⏸ Paused by Video / Media ({0})", mediaSource);
+
+                _lblStatusBadge.Text = "▶ MEDIA PLAYING";
+                _lblStatusBadge.ForeColor = Color.FromArgb(120, 180, 255);
+                _lblStatusBadge.BackColor = Color.FromArgb(20, 35, 60);
+
+                string mediaTrayText = string.Format("OLED Saver - Playing ({0})", mediaSource);
+                if (mediaTrayText.Length > 63) mediaTrayText = mediaTrayText.Substring(0, 63);
+                _trayIcon.Text = mediaTrayText;
                 return;
             }
 
@@ -1229,6 +1329,7 @@ namespace OLEDSaver
                 if (_inputWatcher != null) _inputWatcher.Dispose();
                 if (_blackoutManager != null) _blackoutManager.Dispose();
                 if (_teamsWatcher != null) _teamsWatcher.Dispose();
+                if (_mediaWatcher != null) _mediaWatcher.Dispose();
                 if (_trayIcon != null) _trayIcon.Dispose();
             }
             base.Dispose(disposing);
