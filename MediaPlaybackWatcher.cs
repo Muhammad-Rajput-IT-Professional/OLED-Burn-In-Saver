@@ -51,14 +51,6 @@ namespace OLEDSaver
         }
 
         [ComImport]
-        [Guid("C02216F6-8C67-4B5B-9D00-D008E73E0064")]
-        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-        private interface IAudioMeterInformation
-        {
-            int GetPeakValue(out float pfPeak);
-        }
-
-        [ComImport]
         [Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F")]
         [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         private interface IAudioSessionManager2
@@ -114,14 +106,6 @@ namespace OLEDSaver
             int IsSystemSoundsSession();
             int SetDuckingPreference(bool optOut);
         }
-
-        // ====================================================================
-        // Shell Fullscreen State (DirectX / Fullscreen Video)
-        // ====================================================================
-        [DllImport("shell32.dll")]
-        private static extern int SHQueryUserNotificationState(out int pquns);
-
-        private const int QUNS_RUNNING_D3D_FULL_SCREEN = 3;
 
         private System.Threading.Timer _pollTimer;
         private object _lock = new object();
@@ -180,7 +164,10 @@ namespace OLEDSaver
         {
             detectedSource = "";
 
-            // 1. WASAPI CoreAudio Check: Detect active audio streams from browsers and media players
+            // WASAPI CoreAudio Check: Inspect active audio streams.
+            // Specifically target recognized web browsers (YouTube, Netflix, Twitch)
+            // and dedicated media players (VLC, MPC, Spotify, etc.).
+            // Video games are intentionally NOT matched so the timer continues counting down!
             IMMDeviceEnumerator enumerator = null;
             IMMDevice dev = null;
             try
@@ -189,25 +176,6 @@ namespace OLEDSaver
                 int hr = enumerator.GetDefaultAudioEndpoint(EDataFlow.eRender, ERole.eMultimedia, out dev);
                 if (hr == 0 && dev != null)
                 {
-                    // Check master peak volume level
-                    float masterPeak = 0;
-                    try
-                    {
-                        Guid iidMeter = new Guid("C02216F6-8C67-4B5B-9D00-D008E73E0064");
-                        object meterObj;
-                        dev.Activate(ref iidMeter, 0x17, IntPtr.Zero, out meterObj);
-                        var meter = meterObj as IAudioMeterInformation;
-                        if (meter != null)
-                        {
-                            meter.GetPeakValue(out masterPeak);
-                        }
-                        if (meterObj != null) Marshal.ReleaseComObject(meterObj);
-                    }
-                    catch
-                    {
-                    }
-
-                    // Activate IAudioSessionManager2 to inspect per-process audio sessions
                     Guid iidMgr = new Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F");
                     object mgrObj = null;
                     try
@@ -248,21 +216,13 @@ namespace OLEDSaver
                                                         try
                                                         {
                                                             Process proc = Process.GetProcessById((int)pid);
-                                                            string procName = proc.ProcessName.ToLowerInvariant();
-
-                                                            // Skip system sounds, background OS processes, and OLEDSaver
-                                                            if (procName != "explorer" &&
-                                                                procName != "system" &&
-                                                                procName != "audiodg" &&
-                                                                procName != "taskhostw" &&
-                                                                procName != "oledsaver")
+                                                            string friendly;
+                                                            // Only recognize video/media players and browsers.
+                                                            // Games will return false and will not pause the timer.
+                                                            if (TryGetMediaSource(proc, out friendly))
                                                             {
-                                                                // Dedicated Teams integration handles Teams
-                                                                if (procName != "teams" && procName != "ms-teams" && procName != "msteams")
-                                                                {
-                                                                    detectedSource = GetFriendlyMediaName(proc);
-                                                                    return true;
-                                                                }
+                                                                detectedSource = friendly;
+                                                                return true;
                                                             }
                                                         }
                                                         catch
@@ -298,13 +258,6 @@ namespace OLEDSaver
                             try { Marshal.ReleaseComObject(mgrObj); } catch { }
                         }
                     }
-
-                    // Fallback: If master peak volume is audible (> 0.005) and active
-                    if (masterPeak > 0.005f)
-                    {
-                        detectedSource = "Audio / Media Stream";
-                        return true;
-                    }
                 }
             }
             catch
@@ -322,33 +275,56 @@ namespace OLEDSaver
                 }
             }
 
-            // 2. Fullscreen Video Detection: DirectX / Fullscreen display
-            try
-            {
-                int notifState = 0;
-                if (SHQueryUserNotificationState(out notifState) == 0)
-                {
-                    if (notifState == QUNS_RUNNING_D3D_FULL_SCREEN)
-                    {
-                        detectedSource = "Fullscreen Video / App";
-                        return true;
-                    }
-                }
-            }
-            catch
-            {
-            }
-
             return false;
         }
 
-        private static string GetFriendlyMediaName(Process proc)
+        private static bool TryGetMediaSource(Process proc, out string friendlyName)
         {
+            friendlyName = "";
             string name = proc.ProcessName.ToLowerInvariant();
+
+            // 1. Web Browsers (YouTube, Twitch, Netflix, Web Video Players)
+            if (name == "chrome") { friendlyName = FormatBrowserTitle(proc, "Google Chrome"); return true; }
+            if (name == "msedge" || name == "msedgewebview2") { friendlyName = FormatBrowserTitle(proc, "Microsoft Edge"); return true; }
+            if (name == "firefox") { friendlyName = FormatBrowserTitle(proc, "Mozilla Firefox"); return true; }
+            if (name == "brave") { friendlyName = FormatBrowserTitle(proc, "Brave Browser"); return true; }
+            if (name == "opera" || name == "opera_gx") { friendlyName = FormatBrowserTitle(proc, "Opera Browser"); return true; }
+            if (name == "vivaldi") { friendlyName = FormatBrowserTitle(proc, "Vivaldi Browser"); return true; }
+            if (name == "arc") { friendlyName = FormatBrowserTitle(proc, "Arc Browser"); return true; }
+            if (name == "waterfox") { friendlyName = FormatBrowserTitle(proc, "Waterfox"); return true; }
+
+            // 2. Dedicated Video & Media Players
+            if (name == "vlc") { friendlyName = FormatPlayerTitle(proc, "VLC Media Player"); return true; }
+            if (name.StartsWith("mpc-hc") || name.StartsWith("mpc-be")) { friendlyName = FormatPlayerTitle(proc, "Media Player Classic"); return true; }
+            if (name == "wmplayer") { friendlyName = "Windows Media Player"; return true; }
+            if (name.Contains("potplayer")) { friendlyName = "PotPlayer"; return true; }
+            if (name == "mpv") { friendlyName = "MPV Player"; return true; }
+            if (name == "kmplayer") { friendlyName = "KMPlayer"; return true; }
+            if (name == "gom") { friendlyName = "GOM Player"; return true; }
+            if (name == "spotify") { friendlyName = FormatPlayerTitle(proc, "Spotify"); return true; }
+            if (name == "foobar2000") { friendlyName = "Foobar2000"; return true; }
+            if (name == "music.ui" || name.Contains("zune")) { friendlyName = "Media Player"; return true; }
+            if (name == "plex" || name == "plexmediaplayer") { friendlyName = "Plex"; return true; }
+            if (name == "kodi") { friendlyName = "Kodi"; return true; }
+            if (name == "itunes") { friendlyName = "iTunes"; return true; }
+            if (name == "tidal") { friendlyName = "TIDAL"; return true; }
+            if (name == "deezer") { friendlyName = "Deezer"; return true; }
+
+            // 3. Official Streaming Apps
+            if (name == "netflix") { friendlyName = "Netflix"; return true; }
+            if (name == "primevideo") { friendlyName = "Prime Video"; return true; }
+            if (name == "hulu") { friendlyName = "Hulu"; return true; }
+            if (name == "disneyplus") { friendlyName = "Disney+"; return true; }
+
+            // Not a media playback app (e.g. video games, IDEs, office apps)
+            return false;
+        }
+
+        private static string GetProcessOrSiblingTitle(Process proc)
+        {
             string title = "";
             try { title = proc.MainWindowTitle; } catch { }
 
-            // If empty, look through sibling processes of same executable (e.g. Chrome / Edge multi-process architecture)
             if (string.IsNullOrEmpty(title))
             {
                 try
@@ -368,57 +344,22 @@ namespace OLEDSaver
                 }
             }
 
-            // Common Web Browsers (YouTube, Netflix, Twitch, etc.)
-            if (name == "chrome") return FormatBrowserTitle(title, "Google Chrome");
-            if (name == "msedge" || name == "msedgewebview2") return FormatBrowserTitle(title, "Microsoft Edge");
-            if (name == "firefox") return FormatBrowserTitle(title, "Mozilla Firefox");
-            if (name == "brave") return FormatBrowserTitle(title, "Brave Browser");
-            if (name == "opera" || name == "opera_gx") return FormatBrowserTitle(title, "Opera Browser");
-            if (name == "vivaldi") return FormatBrowserTitle(title, "Vivaldi Browser");
-            if (name == "arc") return FormatBrowserTitle(title, "Arc Browser");
-            if (name == "waterfox") return FormatBrowserTitle(title, "Waterfox");
-
-            // Dedicated Media & Video Players
-            if (name == "vlc")
-            {
-                return !string.IsNullOrEmpty(title) ? "VLC: " + title : "VLC Media Player";
-            }
-            if (name.StartsWith("mpc-hc") || name.StartsWith("mpc-be"))
-            {
-                return !string.IsNullOrEmpty(title) ? "MPC: " + title : "Media Player Classic";
-            }
-            if (name == "wmplayer") return "Windows Media Player";
-            if (name.Contains("potplayer")) return "PotPlayer";
-            if (name == "mpv") return "MPV Player";
-            if (name == "kmplayer") return "KMPlayer";
-            if (name == "gom") return "GOM Player";
-            if (name == "spotify")
-            {
-                return !string.IsNullOrEmpty(title) ? "Spotify: " + title : "Spotify";
-            }
-            if (name == "foobar2000") return "Foobar2000";
-            if (name == "music.ui" || name.Contains("zune")) return "Media Player";
-            if (name == "plex" || name == "plexmediaplayer") return "Plex";
-            if (name == "kodi") return "Kodi";
-            if (name == "itunes") return "iTunes";
-
-            // Fallback: File description or process name
-            try
-            {
-                if (!string.IsNullOrEmpty(proc.MainModule.FileVersionInfo.FileDescription))
-                {
-                    return proc.MainModule.FileVersionInfo.FileDescription;
-                }
-            }
-            catch
-            {
-            }
-
-            return proc.ProcessName;
+            return title ?? "";
         }
 
-        private static string FormatBrowserTitle(string title, string browserName)
+        private static string FormatPlayerTitle(Process proc, string playerName)
         {
+            string title = GetProcessOrSiblingTitle(proc);
+            if (!string.IsNullOrEmpty(title))
+            {
+                return playerName + ": " + title;
+            }
+            return playerName;
+        }
+
+        private static string FormatBrowserTitle(Process proc, string browserName)
+        {
+            string title = GetProcessOrSiblingTitle(proc);
             if (!string.IsNullOrEmpty(title))
             {
                 if (title.IndexOf("YouTube", StringComparison.OrdinalIgnoreCase) >= 0)
