@@ -26,9 +26,7 @@ namespace OLEDSaver
 
         public BlackoutForm(Rectangle bounds, int sensitivityPixels, Action onWakeRequested)
         {
-            // Set bounds 1 pixel shorter at bottom so Windows Shell does not classify
-            // the blackout as an exclusive full-screen app (which would trigger Windows Do Not Disturb and mute notification sounds)
-            _targetBounds = new Rectangle(bounds.X, bounds.Y, bounds.Width, Math.Max(1, bounds.Height - 1));
+            _targetBounds = bounds;
             _sensitivity = Math.Max(2, sensitivityPixels);
             _onWakeRequested = onWakeRequested;
             _showTick = Environment.TickCount;
@@ -69,8 +67,7 @@ namespace OLEDSaver
             _showTick = Environment.TickCount;
             _initialCursorPos = Cursor.Position;
 
-            // Place overlay on top of Z-order covering screen without stealing focus
-            // (Preserves active foreground state so Windows Do Not Disturb / Focus Assist does not suppress notification sounds!)
+            // Keep the user's foreground app active.
             try
             {
                 SetWindowPos(this.Handle, HWND_TOPMOST, _targetBounds.X, _targetBounds.Y, _targetBounds.Width, _targetBounds.Height, SWP_SHOWWINDOW | SWP_NOACTIVATE);

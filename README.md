@@ -17,9 +17,10 @@ When standard Windows power management puts monitors to sleep:
   * Self-emissive OLED subpixels turn off completely (0 nits, zero power per pixel, zero burn-in risk).
   * **Instant 0 ms Resume**: Moving the mouse or touching any key instantly restores your display with zero delay and zero window rearrangement.
   * **Per-Display Target**: Choose which specific monitors go dark (e.g., blank only your OLED monitor, leaving LCD screens active).
+  * Uses two non-activating black panels per display to cover every pixel without presenting a single full-screen window to Windows' automatic Do Not Disturb rule. Existing Do Not Disturb settings and app-specific notification settings still apply.
 * ⚡ **Mode 2: Hardware Screen Power Off (Standby / No Signal)**:
   * Uses native Windows DPMS (`SC_MONITORPOWER`) to cut video signal to all monitors, putting them into deep hardware power-saving standby.
-  * PC, running apps, background downloads, and audio stay 100% active.
+  * PC, running apps, and background downloads stay active. Audio through HDMI/DisplayPort may stop when the display powers off; use Overlay mode to keep that audio connection active.
   * Resumes automatically on any mouse movement or keystroke.
 
 ---

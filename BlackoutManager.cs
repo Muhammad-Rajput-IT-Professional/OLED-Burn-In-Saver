@@ -90,9 +90,20 @@ namespace OLEDSaver
                     // Creates true pitch-black window on selected monitors only
                     foreach (Rectangle bounds in targetScreenBounds)
                     {
-                        BlackoutForm form = new BlackoutForm(bounds, _sensitivityPixels, RequestWakeUp);
-                        _activeForms.Add(form);
-                        form.Show();
+                        // No individual window is full-screen, avoiding the shell's
+                        // full-screen notification rule without leaving a visible gap.
+                        int topHeight = bounds.Height / 2;
+                        Rectangle[] panels = new Rectangle[]
+                        {
+                            new Rectangle(bounds.X, bounds.Y, bounds.Width, topHeight),
+                            new Rectangle(bounds.X, bounds.Y + topHeight, bounds.Width, bounds.Height - topHeight)
+                        };
+                        foreach (Rectangle panel in panels)
+                        {
+                            BlackoutForm form = new BlackoutForm(panel, _sensitivityPixels, RequestWakeUp);
+                            _activeForms.Add(form);
+                            form.Show();
+                        }
                     }
 
                     if (!_isCursorHidden)
