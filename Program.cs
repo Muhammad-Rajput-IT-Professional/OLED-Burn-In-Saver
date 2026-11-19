@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -7,6 +8,16 @@ namespace OLEDSaver
     static class Program
     {
         private static Mutex _singleInstanceMutex;
+
+        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        private static extern uint RegisterWindowMessage(string lpString);
+
+        [DllImport("user32.dll")]
+        private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+        private static readonly IntPtr HWND_BROADCAST = new IntPtr(0xffff);
+        public const string WM_SHOWME_NAME = "OLEDSAVER_WM_SHOWME_RESTORE";
+        public static uint WM_SHOWME;
 
         [STAThread]
         static void Main(string[] args)
@@ -24,18 +35,19 @@ namespace OLEDSaver
                 }
             }
 
+            WM_SHOWME = RegisterWindowMessage(WM_SHOWME_NAME);
+
             const string appGuid = "OLEDSaver-74A831E0-6D18-4FBE-B526-B817A32F9C01";
             bool createdNew;
             _singleInstanceMutex = new Mutex(true, appGuid, out createdNew);
 
             if (!createdNew)
             {
-                // App is already running. If launched with --minimized (e.g. at Windows startup),
-                // exit silently without annoying the user with a popup dialog.
+                // App is already running. If launched without --minimized,
+                // bring the running window to front instead of showing a nagging popup.
                 if (!startMinimized)
                 {
-                    MessageBox.Show("OLED Blackout Saver is already running in your System Tray.",
-                        "OLED Saver", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    PostMessage(HWND_BROADCAST, WM_SHOWME, IntPtr.Zero, IntPtr.Zero);
                 }
                 return;
             }

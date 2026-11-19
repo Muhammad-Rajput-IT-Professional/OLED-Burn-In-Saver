@@ -1009,6 +1009,12 @@ namespace OLEDSaver
 
         protected override void WndProc(ref Message m)
         {
+            if (Program.WM_SHOWME != 0 && (uint)m.Msg == Program.WM_SHOWME)
+            {
+                RestoreFromTray();
+                return;
+            }
+
             if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == HOTKEY_ID)
             {
                 TriggerBlackoutNow();
@@ -1254,7 +1260,6 @@ namespace OLEDSaver
             if (e.CloseReason == CloseReason.UserClosing && _settings.MinimizeToTrayOnClose)
             {
                 e.Cancel = true;
-                this.WindowState = FormWindowState.Minimized;
                 this.Hide();
                 _trayIcon.ShowBalloonTip(1500, "OLED Blackout Saver", "Running silently in background. Double-click tray icon to open.", ToolTipIcon.Info);
             }
@@ -1264,7 +1269,10 @@ namespace OLEDSaver
         {
             _initialMinimized = false;
             this.Show();
-            this.WindowState = FormWindowState.Normal;
+            if (this.WindowState == FormWindowState.Minimized)
+            {
+                this.WindowState = FormWindowState.Normal;
+            }
             this.BringToFront();
             this.Activate();
         }
