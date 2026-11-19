@@ -110,7 +110,7 @@ namespace OLEDSaver
             if (startMinimized)
             {
                 _initialMinimized = true;
-                this.ShowInTaskbar = false;
+                this.WindowState = FormWindowState.Minimized;
             }
         }
 
@@ -1268,7 +1268,6 @@ namespace OLEDSaver
             if (this.WindowState == FormWindowState.Minimized && _settings.MinimizeToTrayOnClose)
             {
                 this.Hide();
-                this.ShowInTaskbar = false;
             }
         }
 
@@ -1277,8 +1276,8 @@ namespace OLEDSaver
             if (e.CloseReason == CloseReason.UserClosing && _settings.MinimizeToTrayOnClose)
             {
                 e.Cancel = true;
+                this.WindowState = FormWindowState.Minimized;
                 this.Hide();
-                this.ShowInTaskbar = false;
                 _trayIcon.ShowBalloonTip(1500, "OLED Blackout Saver", "Running silently in background. Double-click tray icon to open.", ToolTipIcon.Info);
             }
         }
@@ -1287,7 +1286,6 @@ namespace OLEDSaver
         {
             _initialMinimized = false;
             this.Show();
-            this.ShowInTaskbar = true;
             this.WindowState = FormWindowState.Normal;
             this.BringToFront();
             this.Activate();

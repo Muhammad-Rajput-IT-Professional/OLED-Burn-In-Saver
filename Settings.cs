@@ -127,6 +127,20 @@ namespace OLEDSaver
                 {
                     if (key != null)
                     {
+                        // Clean up all legacy / variant keys
+                        string[] legacyKeys = new string[] { "OLEDSaver", "OLED screen saver" };
+                        foreach (string legacyKey in legacyKeys)
+                        {
+                            try
+                            {
+                                if (key.GetValue(legacyKey) != null)
+                                {
+                                    key.DeleteValue(legacyKey);
+                                }
+                            }
+                            catch { }
+                        }
+
                         string appPath = System.Reflection.Assembly.GetExecutingAssembly().Location;
                         if (enable)
                         {

@@ -9,11 +9,13 @@ namespace OLEDSaver
     {
         private const int WS_EX_TOOLWINDOW = 0x00000080;
         private const int WS_EX_TOPMOST = 0x00000008;
+        private const int WS_EX_NOACTIVATE = 0x08000000;
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
         private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
         private const uint SWP_SHOWWINDOW = 0x0040;
+        private const uint SWP_NOACTIVATE = 0x0010;
 
         private Point _initialCursorPos;
         private int _sensitivity;
@@ -44,12 +46,17 @@ namespace OLEDSaver
             this.KeyDown += BlackoutForm_KeyDown;
         }
 
+        protected override bool ShowWithoutActivation
+        {
+            get { return true; }
+        }
+
         protected override CreateParams CreateParams
         {
             get
             {
                 CreateParams cp = base.CreateParams;
-                cp.ExStyle |= WS_EX_TOOLWINDOW | WS_EX_TOPMOST;
+                cp.ExStyle |= WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE;
                 return cp;
             }
         }
@@ -60,11 +67,11 @@ namespace OLEDSaver
             _showTick = Environment.TickCount;
             _initialCursorPos = Cursor.Position;
 
-            // Enforce absolute top of Z-order covering taskbar, app windows, and full primary/external screen
+            // Place overlay on top of Z-order covering screen without stealing focus
+            // (Preserves active foreground state so Windows Do Not Disturb / Focus Assist does not suppress notification sounds!)
             try
             {
-                SetWindowPos(this.Handle, HWND_TOPMOST, _targetBounds.X, _targetBounds.Y, _targetBounds.Width, _targetBounds.Height, SWP_SHOWWINDOW);
-                this.BringToFront();
+                SetWindowPos(this.Handle, HWND_TOPMOST, _targetBounds.X, _targetBounds.Y, _targetBounds.Width, _targetBounds.Height, SWP_SHOWWINDOW | SWP_NOACTIVATE);
             }
             catch
             {
