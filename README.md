@@ -63,8 +63,26 @@ No external SDKs or runtime downloads required! Compiles natively with the built
 build.bat
 ```
 
+Run the settings regression tests in PowerShell (temporary files only; real
+settings and Windows startup entries are not changed):
+
+```powershell
+.\Tests\Run-Tests.ps1
+```
+
 ---
 
 ## 📁 Settings Location
-Settings are saved automatically in:
-`%APPDATA%\OLEDSaver\settings.json`
+Settings are saved automatically for the current Windows user on this PC in:
+`%LOCALAPPDATA%\OLEDSaver\settings.json`
+
+This is Windows' standard per-user, non-roaming application-data folder (normally
+`C:\Users\<username>\AppData\Local`). The app and its required files can stay in
+OneDrive; settings are not stored beside the EXE or synchronized between PCs.
+Each PC keeps its own checkbox selections, timeout, display choices, and other
+preferences. Start with Windows is also configured separately for each Windows
+user on each PC.
+
+On the first launch after this update, existing settings from
+`%APPDATA%\OLEDSaver\settings.json` are copied to the local folder if no local
+settings file exists. The old file is left untouched and ignored thereafter.

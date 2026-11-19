@@ -58,7 +58,7 @@ namespace OLEDSaver
                 string id = s.DeviceName;
 
                 bool selected = true;
-                if (savedSelectedIds != null && savedSelectedIds.Count > 0)
+                if (savedSelectedIds != null)
                 {
                     selected = savedSelectedIds.Contains(id) || savedSelectedIds.Contains(friendlyName);
                 }

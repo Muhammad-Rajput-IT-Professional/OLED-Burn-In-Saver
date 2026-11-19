@@ -790,7 +790,7 @@ namespace OLEDSaver
 
         private void SaveSelectedDisplays()
         {
-            _settings.SelectedDisplayIds.Clear();
+            _settings.SelectedDisplayIds = new List<string>();
             foreach (DisplayInfo d in _displays)
             {
                 if (d.IsSelected)
@@ -881,11 +881,7 @@ namespace OLEDSaver
             {
                 _settings.TeamsPreventStatuses = new List<string> { "InACall", "Presenting", "Busy" };
             }
-            _chkTeamsInCall.Checked = _settings.TeamsPreventStatuses.Contains("InACall");
-            _chkTeamsPresenting.Checked = _settings.TeamsPreventStatuses.Contains("Presenting");
-            _chkTeamsBusy.Checked = _settings.TeamsPreventStatuses.Contains("Busy");
-            _chkTeamsDnd.Checked = _settings.TeamsPreventStatuses.Contains("DoNotDisturb");
-            _chkTeamsAway.Checked = _settings.TeamsPreventStatuses.Contains("Away");
+            ApplyTeamsSettingsToUI();
             UpdateTeamsUI();
 
             _chkMediaEnable.Checked = _settings.MediaPlaybackDetectionEnabled;
@@ -895,6 +891,23 @@ namespace OLEDSaver
             UpdateStatusBadge();
         }
 
+        private void ApplyTeamsSettingsToUI()
+        {
+            _applyingTeamsSettings = true;
+            try
+            {
+                _chkTeamsInCall.Checked = _settings.TeamsPreventStatuses.Contains("InACall");
+                _chkTeamsPresenting.Checked = _settings.TeamsPreventStatuses.Contains("Presenting");
+                _chkTeamsBusy.Checked = _settings.TeamsPreventStatuses.Contains("Busy");
+                _chkTeamsDnd.Checked = _settings.TeamsPreventStatuses.Contains("DoNotDisturb");
+                _chkTeamsAway.Checked = _settings.TeamsPreventStatuses.Contains("Away");
+            }
+            finally
+            {
+                _applyingTeamsSettings = false;
+            }
+        }
+
         private void ChkTeamsEnable_CheckedChanged(object sender, EventArgs e)
         {
             _settings.TeamsDetectionEnabled = _chkTeamsEnable.Checked;
@@ -902,8 +915,12 @@ namespace OLEDSaver
             UpdateTeamsUI();
         }
 
+        private bool _applyingTeamsSettings;
+
         private void TeamsStatusCheckbox_CheckedChanged(object sender, EventArgs e)
         {
+            if (_applyingTeamsSettings) return;
+
             List<string> list = new List<string>();
             if (_chkTeamsInCall.Checked) list.Add("InACall");
             if (_chkTeamsPresenting.Checked) list.Add("Presenting");

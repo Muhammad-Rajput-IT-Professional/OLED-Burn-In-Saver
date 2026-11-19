@@ -29,7 +29,7 @@ namespace OLEDSaver
             StartWithWindows = false;
             MinimizeToTrayOnClose = true;
             HotkeyEnabled = true;
-            SelectedDisplayIds = new List<string>();
+            SelectedDisplayIds = null; // No saved selection yet; default to all connected displays.
             TeamsDetectionEnabled = true;
             TeamsPreventStatuses = new List<string> { "InACall", "Presenting", "Busy" };
             MediaPlaybackDetectionEnabled = true;
@@ -37,26 +37,32 @@ namespace OLEDSaver
 
         private static string GetConfigPath()
         {
-            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             string folder = Path.Combine(appData, "OLEDSaver");
-            if (!Directory.Exists(folder))
-            {
-                Directory.CreateDirectory(folder);
-            }
             return Path.Combine(folder, "settings.json");
         }
 
         public static AppSettings Load()
         {
             AppSettings settings = new AppSettings();
-            string path = GetConfigPath();
-            if (!File.Exists(path))
-            {
-                return settings;
-            }
-
             try
             {
+                string path = GetConfigPath();
+                if (!File.Exists(path))
+                {
+                    string legacyPath = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                        @"OLEDSaver\settings.json");
+                    if (!File.Exists(legacyPath))
+                    {
+                        return settings;
+                    }
+
+                    // Copy once; never write to or keep synchronizing the roaming file.
+                    Directory.CreateDirectory(Path.GetDirectoryName(path));
+                    File.Copy(legacyPath, path, false);
+                }
+
                 string text = File.ReadAllText(path, Encoding.UTF8);
                 settings.TimeoutMinutes = ParseInt(text, "TimeoutMinutes", 5);
                 settings.IdleMode = ParseString(text, "IdleMode", "KeyboardOnly");
@@ -65,11 +71,14 @@ namespace OLEDSaver
                 settings.StartWithWindows = ParseBool(text, "StartWithWindows", false);
                 settings.MinimizeToTrayOnClose = ParseBool(text, "MinimizeToTrayOnClose", true);
                 settings.HotkeyEnabled = ParseBool(text, "HotkeyEnabled", true);
-                settings.SelectedDisplayIds = ParseStringList(text, "SelectedDisplayIds");
+                if (text.IndexOf("\"SelectedDisplayIds\":") >= 0)
+                {
+                    settings.SelectedDisplayIds = ParseStringList(text, "SelectedDisplayIds");
+                }
                 settings.TeamsDetectionEnabled = ParseBool(text, "TeamsDetectionEnabled", true);
                 settings.MediaPlaybackDetectionEnabled = ParseBool(text, "MediaPlaybackDetectionEnabled", true);
                 List<string> parsedTeamsStatuses = ParseStringList(text, "TeamsPreventStatuses");
-                if (parsedTeamsStatuses.Count > 0)
+                if (text.IndexOf("\"TeamsPreventStatuses\":") >= 0)
                 {
                     settings.TeamsPreventStatuses = parsedTeamsStatuses;
                 }
@@ -86,6 +95,7 @@ namespace OLEDSaver
             try
             {
                 string path = GetConfigPath();
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
                 StringBuilder sb = new StringBuilder();
                 sb.AppendLine("{");
                 sb.AppendFormat("  \"TimeoutMinutes\": {0},\n", TimeoutMinutes);
@@ -104,7 +114,7 @@ namespace OLEDSaver
                 }
                 sb.AppendLine("  ],");
                 sb.AppendLine("  \"SelectedDisplayIds\": [");
-                for (int i = 0; i < SelectedDisplayIds.Count; i++)
+                for (int i = 0; SelectedDisplayIds != null && i < SelectedDisplayIds.Count; i++)
                 {
                     sb.AppendFormat("    \"{0}\"{1}\n", Escape(SelectedDisplayIds[i]), (i < SelectedDisplayIds.Count - 1) ? "," : "");
                 }
@@ -202,9 +212,27 @@ namespace OLEDSaver
             if (idx < 0) return fallback;
             int start = json.IndexOf('"', idx + pattern.Length);
             if (start < 0) return fallback;
-            int end = json.IndexOf('"', start + 1);
-            if (end < 0) return fallback;
-            return json.Substring(start + 1, end - start - 1);
+            return ReadQuotedString(json, ref start) ?? fallback;
+        }
+
+        private static string ReadQuotedString(string text, ref int position)
+        {
+            StringBuilder value = new StringBuilder();
+            for (position++; position < text.Length; position++)
+            {
+                char c = text[position];
+                if (c == '"')
+                {
+                    position++;
+                    return value.ToString();
+                }
+                if (c == '\\' && position + 1 < text.Length)
+                {
+                    c = text[++position];
+                }
+                value.Append(c);
+            }
+            return null;
         }
 
         private static List<string> ParseStringList(string json, string key)
@@ -224,10 +252,10 @@ namespace OLEDSaver
             {
                 int q1 = arrayContent.IndexOf('"', cur);
                 if (q1 < 0) break;
-                int q2 = arrayContent.IndexOf('"', q1 + 1);
-                if (q2 < 0) break;
-                list.Add(arrayContent.Substring(q1 + 1, q2 - q1 - 1));
-                cur = q2 + 1;
+                string value = ReadQuotedString(arrayContent, ref q1);
+                if (value == null) break;
+                list.Add(value);
+                cur = q1;
             }
             return list;
         }
