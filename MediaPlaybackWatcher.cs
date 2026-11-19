@@ -38,7 +38,9 @@ namespace OLEDSaver
         [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         private interface IMMDeviceEnumerator
         {
+            [PreserveSig]
             int EnumAudioEndpoints(EDataFlow dataFlow, uint dwStateMask, out IntPtr ppDevices);
+            [PreserveSig]
             int GetDefaultAudioEndpoint(EDataFlow dataFlow, ERole role, out IMMDevice ppEndpoint);
         }
 
@@ -47,6 +49,7 @@ namespace OLEDSaver
         [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         private interface IMMDevice
         {
+            [PreserveSig]
             int Activate(ref Guid riid, uint dwClsCtx, IntPtr pActivationParams, [MarshalAs(UnmanagedType.IUnknown)] out object ppInterface);
         }
 
@@ -55,8 +58,11 @@ namespace OLEDSaver
         [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         private interface IAudioSessionManager2
         {
+            [PreserveSig]
             int GetAudioSessionControl(ref Guid AudioSessionGuid, uint StreamFlags, out IntPtr SessionControl);
+            [PreserveSig]
             int GetSimpleAudioVolume(ref Guid AudioSessionGuid, uint StreamFlags, out IntPtr AudioVolume);
+            [PreserveSig]
             int GetSessionEnumerator(out IAudioSessionEnumerator SessionEnum);
         }
 
@@ -65,7 +71,9 @@ namespace OLEDSaver
         [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         private interface IAudioSessionEnumerator
         {
+            [PreserveSig]
             int GetCount(out int SessionCount);
+            [PreserveSig]
             int GetSession(int SessionIndex, out IAudioSessionControl Session);
         }
 
@@ -74,14 +82,23 @@ namespace OLEDSaver
         [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         private interface IAudioSessionControl
         {
+            [PreserveSig]
             int GetState(out AudioSessionState pRetVal);
+            [PreserveSig]
             int GetDisplayName(out IntPtr pRetVal);
+            [PreserveSig]
             int SetDisplayName(string Value, ref Guid EventContext);
+            [PreserveSig]
             int GetIconPath(out IntPtr pRetVal);
+            [PreserveSig]
             int SetIconPath(string Value, ref Guid EventContext);
+            [PreserveSig]
             int GetGroupingParam(out Guid pRetVal);
+            [PreserveSig]
             int SetGroupingParam(ref Guid Override, ref Guid EventContext);
+            [PreserveSig]
             int RegisterAudioSessionNotification(IntPtr NewNotifications);
+            [PreserveSig]
             int UnregisterAudioSessionNotification(IntPtr NewNotifications);
         }
 
@@ -90,23 +107,57 @@ namespace OLEDSaver
         [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         private interface IAudioSessionControl2 : IAudioSessionControl
         {
+            [PreserveSig]
             new int GetState(out AudioSessionState pRetVal);
+            [PreserveSig]
             new int GetDisplayName(out IntPtr pRetVal);
+            [PreserveSig]
             new int SetDisplayName(string Value, ref Guid EventContext);
+            [PreserveSig]
             new int GetIconPath(out IntPtr pRetVal);
+            [PreserveSig]
             new int SetIconPath(string Value, ref Guid EventContext);
+            [PreserveSig]
             new int GetGroupingParam(out Guid pRetVal);
+            [PreserveSig]
             new int SetGroupingParam(ref Guid Override, ref Guid EventContext);
+            [PreserveSig]
             new int RegisterAudioSessionNotification(IntPtr NewNotifications);
+            [PreserveSig]
             new int UnregisterAudioSessionNotification(IntPtr NewNotifications);
 
+            [PreserveSig]
             int GetSessionIdentifier(out IntPtr pRetVal);
+            [PreserveSig]
             int GetSessionInstanceIdentifier(out IntPtr pRetVal);
+            [PreserveSig]
             int GetProcessId(out uint pRetVal);
+            [PreserveSig]
             int IsSystemSoundsSession();
+            [PreserveSig]
             int SetDuckingPreference(bool optOut);
         }
 
+        [ComImport]
+        [Guid("C02216F6-8C67-4B5B-9D00-D008E73E0064")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface IAudioMeterInformation
+        {
+            [PreserveSig]
+            int GetPeakValue(out float peak);
+        }
+
+        private sealed class PlaybackCandidate
+        {
+            public uint FirstAudibleTick;
+            public uint LastAudibleTick;
+            public bool Confirmed;
+        }
+
+        private const uint PlaybackConfirmationMs = 5000;
+        private const uint SilenceGraceMs = 2000;
+        private const float MinimumAudiblePeak = 0.0001f;
+        private readonly Dictionary<string, PlaybackCandidate> _playbackCandidates = new Dictionary<string, PlaybackCandidate>();
         private System.Threading.Timer _pollTimer;
         private object _lock = new object();
         private bool _isDisposed = false;
@@ -129,14 +180,13 @@ namespace OLEDSaver
 
         private void PollCallback(object state)
         {
-            if (_isDisposed) return;
-
-            string detectedSource;
-            bool isPlaying = CheckIfMediaPlaying(out detectedSource);
-
             bool changed = false;
+            bool isPlaying;
+            string detectedSource;
             lock (_lock)
             {
+                if (_isDisposed) return;
+                isPlaying = CheckIfMediaPlaying(out detectedSource);
                 if (isPlaying != IsMediaPlaying || detectedSource != ActiveMediaSource)
                 {
                     IsMediaPlaying = isPlaying;
@@ -162,7 +212,23 @@ namespace OLEDSaver
 
         public bool CheckIfMediaPlaying(out string detectedSource)
         {
+            lock (_lock)
+            {
+                if (_isDisposed)
+                {
+                    detectedSource = "";
+                    return false;
+                }
+                return CheckIfMediaPlayingCore(out detectedSource);
+            }
+        }
+
+        private bool CheckIfMediaPlayingCore(out string detectedSource)
+        {
             detectedSource = "";
+            bool mediaPlaying = false;
+            HashSet<string> observedSessions = new HashSet<string>();
+            uint now = unchecked((uint)Environment.TickCount);
 
             // WASAPI CoreAudio Check: Inspect active audio streams.
             // Specifically target recognized web browsers (YouTube, Netflix, Twitch)
@@ -180,7 +246,7 @@ namespace OLEDSaver
                     object mgrObj = null;
                     try
                     {
-                        dev.Activate(ref iidMgr, 0x17, IntPtr.Zero, out mgrObj);
+                        if (dev.Activate(ref iidMgr, 0x17, IntPtr.Zero, out mgrObj) != 0) return false;
                         var mgr = mgrObj as IAudioSessionManager2;
 
                         if (mgr != null)
@@ -188,41 +254,61 @@ namespace OLEDSaver
                             IAudioSessionEnumerator sessionEnum = null;
                             try
                             {
-                                mgr.GetSessionEnumerator(out sessionEnum);
+                                if (mgr.GetSessionEnumerator(out sessionEnum) != 0) return false;
                                 if (sessionEnum != null)
                                 {
                                     int sessionCount = 0;
-                                    sessionEnum.GetCount(out sessionCount);
+                                    if (sessionEnum.GetCount(out sessionCount) != 0) return false;
 
                                     for (int i = 0; i < sessionCount; i++)
                                     {
                                         IAudioSessionControl ctl = null;
                                         try
                                         {
-                                            sessionEnum.GetSession(i, out ctl);
+                                            if (sessionEnum.GetSession(i, out ctl) != 0) continue;
                                             var ctl2 = ctl as IAudioSessionControl2;
                                             if (ctl2 != null)
                                             {
                                                 AudioSessionState st;
-                                                ctl2.GetState(out st);
+                                                if (ctl2.GetState(out st) != 0 || ctl2.IsSystemSoundsSession() == 0) continue;
 
                                                 if (st == AudioSessionState.AudioSessionStateActive)
                                                 {
                                                     uint pid;
-                                                    ctl2.GetProcessId(out pid);
+                                                    if (ctl2.GetProcessId(out pid) != 0) continue;
 
                                                     if (pid > 0)
                                                     {
                                                         try
                                                         {
-                                                            Process proc = Process.GetProcessById((int)pid);
-                                                            string friendly;
-                                                            // Only recognize video/media players and browsers.
-                                                            // Games will return false and will not pause the timer.
-                                                            if (TryGetMediaSource(proc, out friendly))
+                                                            using (Process proc = Process.GetProcessById((int)pid))
                                                             {
-                                                                detectedSource = friendly;
-                                                                return true;
+                                                                string friendly;
+                                                                if (!TryGetMediaSource(proc, out friendly)) continue;
+
+                                                                IAudioMeterInformation meter = ctl as IAudioMeterInformation;
+                                                                float peak;
+                                                                if (meter == null || meter.GetPeakValue(out peak) != 0) continue;
+
+                                                                IntPtr sessionIdPtr = IntPtr.Zero;
+                                                                string sessionId;
+                                                                try
+                                                                {
+                                                                    if (ctl2.GetSessionInstanceIdentifier(out sessionIdPtr) != 0) continue;
+                                                                    sessionId = Marshal.PtrToStringUni(sessionIdPtr);
+                                                                }
+                                                                finally
+                                                                {
+                                                                    if (sessionIdPtr != IntPtr.Zero) Marshal.FreeCoTaskMem(sessionIdPtr);
+                                                                }
+                                                                if (string.IsNullOrEmpty(sessionId)) continue;
+
+                                                                observedSessions.Add(sessionId);
+                                                                if (IsSustainedPlayback(sessionId, peak > MinimumAudiblePeak, now) && !mediaPlaying)
+                                                                {
+                                                                    detectedSource = friendly;
+                                                                    mediaPlaying = true;
+                                                                }
                                                             }
                                                         }
                                                         catch
@@ -265,6 +351,10 @@ namespace OLEDSaver
             }
             finally
             {
+                foreach (string sessionId in new List<string>(_playbackCandidates.Keys))
+                {
+                    if (!observedSessions.Contains(sessionId)) _playbackCandidates.Remove(sessionId);
+                }
                 if (dev != null)
                 {
                     try { Marshal.ReleaseComObject(dev); } catch { }
@@ -275,7 +365,36 @@ namespace OLEDSaver
                 }
             }
 
-            return false;
+            return mediaPlaying;
+        }
+
+        private bool IsSustainedPlayback(string sessionId, bool audible, uint now)
+        {
+            PlaybackCandidate candidate;
+            if (_playbackCandidates.TryGetValue(sessionId, out candidate) &&
+                unchecked(now - candidate.LastAudibleTick) > SilenceGraceMs)
+            {
+                _playbackCandidates.Remove(sessionId);
+                candidate = null;
+            }
+
+            if (candidate == null)
+            {
+                if (!audible) return false;
+                candidate = new PlaybackCandidate { FirstAudibleTick = now };
+                _playbackCandidates.Add(sessionId, candidate);
+            }
+
+            if (audible)
+            {
+                candidate.LastAudibleTick = now;
+                if (unchecked(now - candidate.FirstAudibleTick) >= PlaybackConfirmationMs)
+                {
+                    candidate.Confirmed = true;
+                }
+            }
+
+            return candidate.Confirmed;
         }
 
         private static bool TryGetMediaSource(Process proc, out string friendlyName)
@@ -419,9 +538,11 @@ namespace OLEDSaver
 
         public void Dispose()
         {
-            if (!_isDisposed)
+            lock (_lock)
             {
+                if (_isDisposed) return;
                 _isDisposed = true;
+                _playbackCandidates.Clear();
                 if (_pollTimer != null)
                 {
                     _pollTimer.Dispose();

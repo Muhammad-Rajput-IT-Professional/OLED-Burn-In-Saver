@@ -51,6 +51,7 @@ Uses passive Windows Raw Input (`RIDEV_INPUTSINK`) and event timestamping purely
 | **Global Hotkey** | Press **`Ctrl + Alt + B`** anywhere in Windows to trigger the action immediately. |
 | **System Tray** | Minimizes to the notification area with a live countdown tooltip and right-click quick menu. |
 | **Windows Startup** | One-click toggle to launch silently in the background when Windows boots up. |
+| **Media Playback Detection** | Pauses the countdown after 5 seconds of sustained audible playback from supported browsers and media players. Brief notification sounds and silent audio sessions do not reset the timer; short silent gaps during confirmed playback are tolerated for up to 2 seconds. |
 
 ---
 

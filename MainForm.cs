@@ -504,7 +504,7 @@ namespace OLEDSaver
             cardMedia.Controls.Add(lblMediaTitle);
 
             _chkMediaEnable = new CheckBox();
-            _chkMediaEnable.Text = "Pause countdown when video or media is playing (YouTube, browsers, VLC, MPC, etc.)";
+            _chkMediaEnable.Text = "Pause for video / music after 5 seconds of playback (ignore brief notification sounds)";
             _chkMediaEnable.Location = new Point(24, lblMediaTitle.Bottom + 10);
             _chkMediaEnable.AutoSize = true;
             _chkMediaEnable.Checked = _settings.MediaPlaybackDetectionEnabled;
