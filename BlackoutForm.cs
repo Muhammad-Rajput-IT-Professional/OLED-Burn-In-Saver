@@ -26,14 +26,16 @@ namespace OLEDSaver
 
         public BlackoutForm(Rectangle bounds, int sensitivityPixels, Action onWakeRequested)
         {
-            _targetBounds = bounds;
+            // Set bounds 1 pixel shorter at bottom so Windows Shell does not classify
+            // the blackout as an exclusive full-screen app (which would trigger Windows Do Not Disturb and mute notification sounds)
+            _targetBounds = new Rectangle(bounds.X, bounds.Y, bounds.Width, Math.Max(1, bounds.Height - 1));
             _sensitivity = Math.Max(2, sensitivityPixels);
             _onWakeRequested = onWakeRequested;
             _showTick = Environment.TickCount;
 
             this.FormBorderStyle = FormBorderStyle.None;
             this.StartPosition = FormStartPosition.Manual;
-            this.Bounds = bounds;
+            this.Bounds = _targetBounds;
             this.BackColor = Color.Black;
             this.TopMost = true;
             this.ShowInTaskbar = false;

@@ -25,6 +25,79 @@ namespace OLEDSaver
 
     public class TeamsWatcher : IDisposable
     {
+        // WASAPI Audio Capture Interop to detect active microphone streaming in calls
+        private enum EDataFlow { eRender = 0, eCapture = 1, eAll = 2 }
+        private enum ERole { eConsole = 0, eMultimedia = 1, eCommunications = 2 }
+        private enum AudioSessionState { AudioSessionStateInactive = 0, AudioSessionStateActive = 1, AudioSessionStateExpired = 2 }
+
+        [ComImport]
+        [Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
+        private class MMDeviceEnumeratorComObject { }
+
+        [ComImport]
+        [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface IMMDeviceEnumerator
+        {
+            int EnumAudioEndpoints(EDataFlow dataFlow, uint dwStateMask, out IntPtr ppDevices);
+            int GetDefaultAudioEndpoint(EDataFlow dataFlow, ERole role, out IMMDevice ppEndpoint);
+        }
+
+        [ComImport]
+        [Guid("D666063F-1587-4E43-81F1-B948E807363F")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface IMMDevice
+        {
+            int Activate(ref Guid riid, uint dwClsCtx, IntPtr pActivationParams, [MarshalAs(UnmanagedType.IUnknown)] out object ppInterface);
+        }
+
+        [ComImport]
+        [Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface IAudioSessionManager2
+        {
+            int GetAudioSessionControl(ref Guid AudioSessionGuid, uint StreamFlags, out IntPtr SessionControl);
+            int GetSimpleAudioVolume(ref Guid AudioSessionGuid, uint StreamFlags, out IntPtr AudioVolume);
+            int GetSessionEnumerator(out IAudioSessionEnumerator SessionEnum);
+        }
+
+        [ComImport]
+        [Guid("E2F5BB11-0570-40CA-ACDD-3AA01277DEE8")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface IAudioSessionEnumerator
+        {
+            int GetCount(out int SessionCount);
+            int GetSession(int SessionIndex, out IAudioSessionControl Session);
+        }
+
+        [ComImport]
+        [Guid("F4B1A599-7266-4319-A8CA-E70ACB11E8CD")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface IAudioSessionControl
+        {
+            int GetState(out AudioSessionState pRetVal);
+        }
+
+        [ComImport]
+        [Guid("bfb7ff88-7239-4fc9-8fa2-07c950be9c6d")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface IAudioSessionControl2 : IAudioSessionControl
+        {
+            new int GetState(out AudioSessionState pRetVal);
+            int GetDisplayName(out IntPtr pRetVal);
+            int SetDisplayName(string Value, ref Guid EventContext);
+            int GetIconPath(out IntPtr pRetVal);
+            int SetIconPath(string Value, ref Guid EventContext);
+            int GetGroupingParam(out Guid pRetVal);
+            int SetGroupingParam(ref Guid Override, ref Guid EventContext);
+            int RegisterAudioSessionNotification(IntPtr NewNotifications);
+            int UnregisterAudioSessionNotification(IntPtr NewNotifications);
+
+            int GetSessionIdentifier(out IntPtr pRetVal);
+            int GetSessionInstanceIdentifier(out IntPtr pRetVal);
+            int GetProcessId(out uint pRetVal);
+        }
+
         [DllImport("user32.dll")]
         private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
         private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
@@ -213,79 +286,89 @@ namespace OLEDSaver
 
         private bool IsTeamsMicrophoneOrCameraActive()
         {
+            // 1. Real-time WASAPI Microphone Capture session check
+            // When Teams is in a call/meeting, its eCapture audio session is AudioSessionStateActive!
+            // When not in a call/meeting, the session is AudioSessionStateInactive.
+            IMMDeviceEnumerator enumerator = null;
+            IMMDevice dev = null;
             try
             {
-                // Packaged New Teams microphone
-                if (CheckConsentStoreKey(@"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone\MSTeams_8wekyb3d8bbwe"))
-                    return true;
-
-                // Packaged New Teams webcam
-                if (CheckConsentStoreKey(@"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\webcam\MSTeams_8wekyb3d8bbwe"))
-                    return true;
-
-                // Classic Teams / NonPackaged microphone entries
-                using (RegistryKey baseKey = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone\NonPackaged"))
+                enumerator = (IMMDeviceEnumerator)new MMDeviceEnumeratorComObject();
+                int hr = enumerator.GetDefaultAudioEndpoint(EDataFlow.eCapture, ERole.eCommunications, out dev);
+                if (hr != 0 || dev == null)
                 {
-                    if (baseKey != null)
+                    hr = enumerator.GetDefaultAudioEndpoint(EDataFlow.eCapture, ERole.eConsole, out dev);
+                }
+
+                if (hr == 0 && dev != null)
+                {
+                    Guid iidMgr = new Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F");
+                    object mgrObj = null;
+                    dev.Activate(ref iidMgr, 0x17, IntPtr.Zero, out mgrObj);
+                    var mgr = mgrObj as IAudioSessionManager2;
+                    if (mgr != null)
                     {
-                        foreach (string subName in baseKey.GetSubKeyNames())
+                        IAudioSessionEnumerator sessionEnum = null;
+                        try
                         {
-                            if (subName.IndexOf("teams.exe", StringComparison.OrdinalIgnoreCase) >= 0)
+                            mgr.GetSessionEnumerator(out sessionEnum);
+                            if (sessionEnum != null)
                             {
-                                using (RegistryKey appKey = baseKey.OpenSubKey(subName))
+                                int count = 0;
+                                sessionEnum.GetCount(out count);
+                                for (int i = 0; i < count; i++)
                                 {
-                                    if (appKey != null && IsConsentKeyActive(appKey))
-                                        return true;
+                                    IAudioSessionControl ctl = null;
+                                    try
+                                    {
+                                        sessionEnum.GetSession(i, out ctl);
+                                        var ctl2 = ctl as IAudioSessionControl2;
+                                        if (ctl2 != null)
+                                        {
+                                            AudioSessionState st;
+                                            ctl2.GetState(out st);
+                                            if (st == AudioSessionState.AudioSessionStateActive)
+                                            {
+                                                uint pid;
+                                                ctl2.GetProcessId(out pid);
+                                                if (pid > 0)
+                                                {
+                                                    try
+                                                    {
+                                                        Process p = Process.GetProcessById((int)pid);
+                                                        string name = p.ProcessName.ToLowerInvariant();
+                                                        if (name == "ms-teams" || name == "teams")
+                                                        {
+                                                            return true;
+                                                        }
+                                                    }
+                                                    catch { }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    finally
+                                    {
+                                        if (ctl != null) try { Marshal.ReleaseComObject(ctl); } catch { }
+                                    }
                                 }
                             }
+                        }
+                        finally
+                        {
+                            if (sessionEnum != null) try { Marshal.ReleaseComObject(sessionEnum); } catch { }
+                            if (mgrObj != null) try { Marshal.ReleaseComObject(mgrObj); } catch { }
                         }
                     }
                 }
             }
-            catch
+            catch { }
+            finally
             {
+                if (dev != null) try { Marshal.ReleaseComObject(dev); } catch { }
+                if (enumerator != null) try { Marshal.ReleaseComObject(enumerator); } catch { }
             }
 
-            return false;
-        }
-
-        private bool CheckConsentStoreKey(string path)
-        {
-            try
-            {
-                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(path))
-                {
-                    if (key != null)
-                    {
-                        return IsConsentKeyActive(key);
-                    }
-                }
-            }
-            catch
-            {
-            }
-            return false;
-        }
-
-        private bool IsConsentKeyActive(RegistryKey key)
-        {
-            try
-            {
-                object startObj = key.GetValue("LastUsedTimeStart");
-                object stopObj = key.GetValue("LastUsedTimeStop");
-
-                if (startObj != null && stopObj != null)
-                {
-                    long start = Convert.ToInt64(startObj);
-                    long stop = Convert.ToInt64(stopObj);
-
-                    if (stop == 0 && start > 0) return true;
-                    if (start > stop) return true;
-                }
-            }
-            catch
-            {
-            }
             return false;
         }
 
@@ -315,9 +398,13 @@ namespace OLEDSaver
 
                         if (!string.IsNullOrEmpty(title))
                         {
-                            if (title.IndexOf("Meeting", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                title.IndexOf("Call with", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                title.IndexOf(", meeting", StringComparison.OrdinalIgnoreCase) >= 0)
+                            // Match real active meeting or call windows (e.g. "Meeting | Microsoft Teams, meeting", "Call with John | Microsoft Teams, call", "Microsoft Teams Call")
+                            // Do NOT match regular chat windows like "Team Meeting | Microsoft Teams"!
+                            if (title.EndsWith(", meeting", StringComparison.OrdinalIgnoreCase) ||
+                                title.EndsWith(", call", StringComparison.OrdinalIgnoreCase) ||
+                                title.IndexOf(" | Microsoft Teams, meeting", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                title.IndexOf(" | Microsoft Teams, call", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                title.Equals("Microsoft Teams Call", StringComparison.OrdinalIgnoreCase))
                             {
                                 meetingFound = true;
                                 return false; // Stop enumeration
@@ -472,11 +559,11 @@ namespace OLEDSaver
             if (string.IsNullOrEmpty(raw)) return "Available";
             string s = raw.Trim().ToLowerInvariant();
 
-            if (s.Contains("call") || s.Contains("meeting")) return "InACall";
+            if (s == "inmeeting" || s == "inacall" || s == "incall" || s == "in_a_meeting" || s == "in_a_call" || s == "onacal" || s == "onacall") return "InACall";
             if (s.Contains("present")) return "Presenting";
-            if (s.Contains("donotdisturb") || s.Contains("dnd") || s.Contains("outofoffice") || s.Contains("oof")) return "DoNotDisturb";
+            if (s.Contains("donotdisturb") || s.Contains("dnd") || s.Contains("outofoffice") || s.Contains("oof") || s.Contains("focusing")) return "DoNotDisturb";
             if (s.Contains("busy")) return "Busy";
-            if (s.Contains("away") || s.Contains("berightback") || s.Contains("idle")) return "Away";
+            if (s.Contains("away") || s.Contains("berightback") || s.Contains("idle") || s.Contains("beshortlyrightback")) return "Away";
             if (s.Contains("available") || s.Contains("active")) return "Available";
             if (s.Contains("offline")) return "Offline";
 

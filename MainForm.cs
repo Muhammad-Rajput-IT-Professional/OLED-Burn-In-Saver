@@ -61,8 +61,7 @@ namespace OLEDSaver
         private Label _lblDisplaysTitle;
         private CheckedListBox _clbDisplays;
         private Button _btnSelectAllDisplays;
-        private Button _btnSelectExternalsOnly;
-        private Button _btnSelectPrimaryOnly;
+        private Button _btnClearAllDisplays;
         private Button _btnRefreshDisplays;
 
         private CheckBox _chkTeamsEnable;
@@ -399,17 +398,11 @@ namespace OLEDSaver
             _btnSelectAllDisplays.Click += (s, e) => SetAllDisplaysChecked(true);
             cardDisplays.Controls.Add(_btnSelectAllDisplays);
 
-            _btnSelectExternalsOnly = CreateStyledButton("External Only", ColButtonDark, ColTextPrimary, false);
-            _btnSelectExternalsOnly.Location = new Point(142, _btnSelectAllDisplays.Top);
-            _btnSelectExternalsOnly.Size = new Size(120, 28);
-            _btnSelectExternalsOnly.Click += (s, e) => SelectDisplaysByFilter(false);
-            cardDisplays.Controls.Add(_btnSelectExternalsOnly);
-
-            _btnSelectPrimaryOnly = CreateStyledButton("Primary Only", ColButtonDark, ColTextPrimary, false);
-            _btnSelectPrimaryOnly.Location = new Point(270, _btnSelectAllDisplays.Top);
-            _btnSelectPrimaryOnly.Size = new Size(110, 28);
-            _btnSelectPrimaryOnly.Click += (s, e) => SelectDisplaysByFilter(true);
-            cardDisplays.Controls.Add(_btnSelectPrimaryOnly);
+            _btnClearAllDisplays = CreateStyledButton("Clear All", ColButtonDark, ColTextPrimary, false);
+            _btnClearAllDisplays.Location = new Point(142, _btnSelectAllDisplays.Top);
+            _btnClearAllDisplays.Size = new Size(110, 28);
+            _btnClearAllDisplays.Click += (s, e) => SetAllDisplaysChecked(false);
+            cardDisplays.Controls.Add(_btnClearAllDisplays);
 
             _btnRefreshDisplays = CreateStyledButton("⟳ Refresh", ColButtonDark, ColTextSecondary, false);
             _btnRefreshDisplays.Location = new Point(cardDisplays.Width - 124, _btnSelectAllDisplays.Top);
@@ -795,17 +788,6 @@ namespace OLEDSaver
             SaveSelectedDisplays();
         }
 
-        private void SelectDisplaysByFilter(bool primaryOnly)
-        {
-            for (int i = 0; i < _displays.Count; i++)
-            {
-                bool match = primaryOnly ? _displays[i].IsPrimary : !_displays[i].IsPrimary;
-                _clbDisplays.SetItemChecked(i, match);
-                _displays[i].IsSelected = match;
-            }
-            SaveSelectedDisplays();
-        }
-
         private void SaveSelectedDisplays()
         {
             _settings.SelectedDisplayIds.Clear();
@@ -852,13 +834,11 @@ namespace OLEDSaver
                 _clbDisplays.ForeColor = Color.FromArgb(100, 105, 115);
 
                 _btnSelectAllDisplays.Enabled = false;
-                _btnSelectExternalsOnly.Enabled = false;
-                _btnSelectPrimaryOnly.Enabled = false;
+                _btnClearAllDisplays.Enabled = false;
                 _btnRefreshDisplays.Enabled = false;
 
                 _btnSelectAllDisplays.ForeColor = Color.FromArgb(90, 95, 105);
-                _btnSelectExternalsOnly.ForeColor = Color.FromArgb(90, 95, 105);
-                _btnSelectPrimaryOnly.ForeColor = Color.FromArgb(90, 95, 105);
+                _btnClearAllDisplays.ForeColor = Color.FromArgb(90, 95, 105);
                 _btnRefreshDisplays.ForeColor = Color.FromArgb(90, 95, 105);
             }
             else
@@ -876,13 +856,11 @@ namespace OLEDSaver
                 _clbDisplays.ForeColor = ColTextPrimary;
 
                 _btnSelectAllDisplays.Enabled = true;
-                _btnSelectExternalsOnly.Enabled = true;
-                _btnSelectPrimaryOnly.Enabled = true;
+                _btnClearAllDisplays.Enabled = true;
                 _btnRefreshDisplays.Enabled = true;
 
                 _btnSelectAllDisplays.ForeColor = ColTextPrimary;
-                _btnSelectExternalsOnly.ForeColor = ColTextPrimary;
-                _btnSelectPrimaryOnly.ForeColor = ColTextPrimary;
+                _btnClearAllDisplays.ForeColor = ColTextPrimary;
                 _btnRefreshDisplays.ForeColor = ColTextSecondary;
             }
         }
